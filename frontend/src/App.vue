@@ -1,9 +1,11 @@
 <script setup>
-import CollaborationEditor from './components/CollaborationEditor.vue'
+// Router view setup if needed
 </script>
 
 <template>
-  <CollaborationEditor />
+  <div id="app">
+    <router-view></router-view>
+  </div>
 </template>
 
 <style>
