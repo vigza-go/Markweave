@@ -1,5 +1,7 @@
 开发中...
+
 Spring Boot, WebSocket, MySQL, Redis, RabbitMQ, MinIO, OT 算法, AI Agent 
+
 项目描述： 该项目是一款实时 Markdown 协同编辑平台，支持多人在线同时编辑、AI 辅助创作及多格式转换。为解决协作过程中的内容冲突，自研了基于 OT（Operational Transformation）算法的冲突协同模块，实现了高可用、低延迟的办公协作环境。
 
 实时协同与冲突合并： 基于 WebSocket 协议实现双工通信，核心采用 OT 算法 处理并发编辑冲突。通过在后端维护操作日志队列，利用版本号校验与操作转换，确保了分布式环境下的 强一致性；前端引入 Stop-and-Wait 停等协议 与 操作合并（Operation Composition） 机制，将连续输入合并为单一增量，减少了 80% 的网络请求压力。
