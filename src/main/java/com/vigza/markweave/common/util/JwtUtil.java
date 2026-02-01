@@ -5,6 +5,8 @@ import java.util.Map;
 
 import org.springframework.stereotype.Component;
 
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+
 import cn.hutool.jwt.JWT;
 import cn.hutool.jwt.JWTUtil;
 import lombok.Data;
@@ -20,10 +22,9 @@ public class JwtUtil {
 
     private String prefix = "Bearer";
 
-    public String generateToken(Long userId,String account){
+    public String generateToken(User user){
         Map<String,Object> payload = new HashMap<>();
-        payload.put("userId",userId);
-        payload.put("account",account);
+        payload.put("user",user);
         payload.put("iat",System.currentTimeMillis());
         payload.put("exp",System.currentTimeMillis() + expiration);
         return JWTUtil.createToken(payload,secret.getBytes());
@@ -38,15 +39,10 @@ public class JwtUtil {
         }
     }
 
-    public Long getUserIdFromToken(String token){
+    public User getUserFromToken(String token){
         JWT jwt = JWTUtil.parseToken(token);
-        return (Long) jwt.getPayload("userId");
+        return (User) jwt.getPayload("user");
     }
 
-    public String getAccountFromToken(String token){
-        JWT jwt = JWTUtil.parseToken(token);
-        return (String) jwt.getPayload("account");
-    }
-
-
+    
 }

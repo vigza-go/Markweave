@@ -30,10 +30,15 @@ public class UserService {
     private RedisService redisService;
 
     @Autowired
+    private FileSystemService fileSystemService;
+
+    @Autowired
     private JwtUtil jwtUtils;
 
     private AuthResponse generateAuthResponse(User user) {
-        String token = jwtUtils.generateToken(user.getId(), user.getAccount());
+        user.setPassword(null);
+        user.setSalt(null);
+        String token = jwtUtils.generateToken(user);
 
 
         AuthResponse.UserDTO userDTO = AuthResponse.UserDTO.builder()
@@ -65,7 +70,9 @@ public class UserService {
         user.setType(0);
         user.setId(IdGenerator.nextId());
         userMapper.insert(user);
-        return Result.success(generateAuthResponse(user));
+        AuthResponse authResponse = generateAuthResponse(user);
+        fileSystemService.initUserNodes(authResponse.getToken());
+        return Result.success(authResponse);
     }
 
     public Result<AuthResponse> login(LoginRequest request) {

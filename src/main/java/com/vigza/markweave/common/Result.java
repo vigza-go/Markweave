@@ -22,8 +22,8 @@ public class Result<T> {
         return new Result<T>(200,"操作成功",data);
     }
 
-    public static <T>  Result<T> success() {
-        return success(null);
+    public static Result<?> success() {
+        return success("操作成功");
     }
 
     public static <T> Result<T> error(Integer code, String message) {

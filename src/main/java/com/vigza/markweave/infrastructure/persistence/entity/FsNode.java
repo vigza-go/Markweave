@@ -1,19 +1,33 @@
 package com.vigza.markweave.infrastructure.persistence.entity;
 
+import java.time.LocalDateTime;
+
 import com.baomidou.mybatisplus.annotation.TableName;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @TableName("fs_node")
 @Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
 public class FsNode {
 
-  private long id;
-  private long userId;
-  private long docId;
+  private Long id;
+  private Long userId;
+  private String userName;
+  private Long docId;
   private String name;
-  private long faId;
+  private Long faId;
   private String path;
-  private long isFolder;
-
+  private Integer type;
+  private Long ptId;
+  private Boolean isRecycled;
+  private Long size;
+  private LocalDateTime createTime;
+  private LocalDateTime updateTime;
 
 }

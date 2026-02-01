@@ -12,13 +12,13 @@ import java.time.LocalDateTime;
 @Data
 public class User {
 
-  private long id;
+  private Long id;
   private String account;
   private String password;
   private String salt;
   private String nickname;
   private String headUrl;
   private LocalDateTime createTime;
-  private long type;
+  private Integer type;
 
 }
