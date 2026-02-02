@@ -12,8 +12,12 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import com.vigza.markweave.core.service.CollaborationService;
+import com.vigza.markweave.core.service.FileSystemService;
+import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
 import com.vigza.markweave.infrastructure.service.RedisService;
 
+import java.nio.file.FileSystem;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +36,11 @@ public class CollaborationHandler extends TextWebSocketHandler {
 
     @Autowired
     private RedisService redisService;
+
+    private FileSystemService fsNodeService;
+
+    @Autowired
+    private CollaborationService collaborationService;
 
     /**
      * 解决又广播时前同一个session还没处理完的问题
@@ -56,7 +65,12 @@ public class CollaborationHandler extends TextWebSocketHandler {
     public void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         JSONObject clientMsg = JSONUtil.parseObj(message.getPayload());
         Long docId = clientMsg.getLong("docId");
+        Long userId =(Long)session.getAttributes().get("userId");
         session.getAttributes().put("docId",docId);
+        if (!collaborationService.canRead(userId, docId)) {
+            safeSend(session, new TextMessage((new JSONObject()).set("error", "无权访问").toString()));
+            return;
+        }
         synchronized (docId.toString().intern()) {
             map.computeIfAbsent(docId, k -> ConcurrentHashMap.newKeySet()).add(session);
 
@@ -78,7 +92,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
                 Long size = redisService.getHistoryListSize(docId);
                 if (maxVer - clientVer > size) {
                     JSONObject msg = new JSONObject();
-                    msg.set("info", "need_get_new");
+                    msg.set("error", "need_get_new");
                     safeSend(session, new TextMessage(msg.toString()));
                     return;
                 }
@@ -159,8 +173,36 @@ public class CollaborationHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         Long docId = (Long) session.getAttributes().get("docId");
-        if(docId != null){
-            map.get(docId).remove(session);
+        /**
+         * 风险：这是经典的 Check-then-Act 问题。
+         * 假设 A、B 两个用户同时断开连接，
+         * 两个线程可能同时判断 isEmpty() 为真，导致逻辑执行两次。
+         * 更糟糕的是，如果此时正好有 C 用户进来，他的 Session 可能会被你的 clearRoom 给误删掉。
+         */
+        // if (docId != null) {
+        // map.get(docId).remove(session);
+        // if (map.get(docId).isEmpty()) {
+        // String finalTarget = redisService.getFullText(docId);
+        // fsNodeService.updateDocContent(docId, finalTarget);
+        // redisService.clearRoom(docId);
+        // }
+        // }
+        synchronized (docId.toString().intern()) {
+            if (docId != null) {
+                Set<WebSocketSession> sessions = map.get(docId);
+                if (sessions != null) {
+                    sessions.remove(session);
+                    if (sessions.isEmpty()) {
+                        String finalTarget = redisService.getFullText(docId);
+                        if (finalTarget != null) {
+                            fsNodeService.updateDocContent(docId, finalTarget);
+                            redisService.clearRoom(docId);
+                        }
+                        map.remove(docId);
+                    }
+                }
+            }
         }
+
     }
 }

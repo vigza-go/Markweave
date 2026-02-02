@@ -39,7 +39,7 @@ public class JwtUtil {
         }
     }
 
-    public User getUserFromToken(String token){
+    public static User getUserFromToken(String token){
         JWT jwt = JWTUtil.parseToken(token);
         return (User) jwt.getPayload("user");
     }

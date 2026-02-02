@@ -1,5 +1,6 @@
 package com.vigza.markweave.core.service;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.vigza.markweave.api.dto.FileNodeVo;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
@@ -35,7 +38,7 @@ public class FileSystemService {
     private DocMapper docMapper;
 
     @Autowired
-    private CollaborationMapper collaborationMapper;
+    private CollaborationService collaborationService;
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -54,6 +57,7 @@ public class FileSystemService {
             fsNodeMapper.insert(root);
         }
     }
+
 
     @Transactional
     public void initUserNodes(String token) {
@@ -107,11 +111,13 @@ public class FileSystemService {
                     .role(Constants.CollaborationRole.CREATOR)
                     .createTime(LocalDateTime.now())
                     .build();
-            collaborationMapper.insert(collaboration);
+            collaborationService.insert(collaboration);
         }
         fsNodeMapper.insert(node);
         return Result.success(nodeId);
     }
+
+
 
     @Transactional
     public Result<?> rename(Long nodeId, String newName, String token) {
@@ -238,5 +244,17 @@ public class FileSystemService {
             return Result.error(403, "未获得操作权限");
         }
         return Result.success(node);
+    }
+
+    @Transactional
+    public void updateDocContent(Long docId, String content) {
+        docMapper.updateContent(docId,content);
+
+        long newSize = content.getBytes(StandardCharsets.UTF_8).length;
+        LambdaUpdateWrapper<FsNode> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(FsNode::getDocId,docId)
+        .set(FsNode::getSize,newSize)
+        .set(FsNode::getUpdateTime,LocalDateTime.now()); 
+        fsNodeMapper.update(updateWrapper);
     }
 }

@@ -14,11 +14,14 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Autowired
     private CollaborationHandler collaborationHandler;
 
+    @Autowired
+    private WebSocketInterceptor webSocketInterceptor;
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(collaborationHandler, "/ws/collaboration").setAllowedOrigins("*");
-
+        registry.addHandler(collaborationHandler, "/ws/collaboration")
+            .setAllowedOrigins("*")
+            .addInterceptors(webSocketInterceptor);
     }
 
 }

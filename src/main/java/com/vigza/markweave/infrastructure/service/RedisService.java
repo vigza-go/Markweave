@@ -1,11 +1,14 @@
 package com.vigza.markweave.infrastructure.service;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
+
+import com.vigza.markweave.infrastructure.persistence.entity.Doc;
 
 @Service
 public class RedisService {
@@ -20,45 +23,51 @@ public class RedisService {
     private static final String DOC_TEXT_PREFIX = "doc:text:";
     private static final String DOC_HISTORY_PREFIX = "doc:history:";
 
-    
-    public Long getAndIncrementVersion(Long docId){
+    public Long getAndIncrementVersion(Long docId) {
         return redisTemplate.opsForValue().increment(DOC_VERSION_PREFIX + docId);
     }
-   
-    public Long getVersion(Long docId){
+
+    public Long getVersion(Long docId) {
         return (Long) redisTemplate.opsForValue().get(DOC_VERSION_PREFIX + docId);
     }
 
-    public String getFullText(Long docId){
-        Object text =  redisTemplate.opsForValue().get(DOC_TEXT_PREFIX + docId);
+    public String getFullText(Long docId) {
+        Object text = redisTemplate.opsForValue().get(DOC_TEXT_PREFIX + docId);
         return text == null ? "" : text.toString();
     }
 
-    public void setFullText(Long docId,String fullText){
-        redisTemplate.opsForValue().set(DOC_TEXT_PREFIX + docId,fullText);
+    public void setFullText(Long docId, String fullText) {
+        redisTemplate.opsForValue().set(DOC_TEXT_PREFIX + docId, fullText);
     }
 
-    public void pushHistory(Long docId,String opJson){
-        redisTemplate.opsForList().rightPush(DOC_HISTORY_PREFIX + docId,opJson);
+    public void pushHistory(Long docId, String opJson) {
+        redisTemplate.opsForList().rightPush(DOC_HISTORY_PREFIX + docId, opJson);
         // 限制留存操作数量
-        redisTemplate.opsForList().trim(DOC_HISTORY_PREFIX + docId , -500, -1);
+        redisTemplate.opsForList().trim(DOC_HISTORY_PREFIX + docId, -500, -1);
     }
 
-    public List<Object> getHistoryRange(Long docId,long l,long r){
+    public List<Object> getHistoryRange(Long docId, long l, long r) {
         return redisTemplate.opsForList().range(DOC_HISTORY_PREFIX + docId, l, r);
     }
 
-    public Long getHistoryListSize(Long docId){
+    public Long getHistoryListSize(Long docId) {
         return redisTemplate.opsForList().size(DOC_HISTORY_PREFIX + docId);
     }
 
-    public void addToBlacklist(String token){
+    public void addToBlacklist(String token) {
         String key = BLACKLIST_PREFIX + token;
         redisTemplate.opsForValue().set(key, "1", expiration, TimeUnit.SECONDS);
     }
-    
-    public boolean isBlacklisted(String token){
+
+    public boolean isBlacklisted(String token) {
         String key = BLACKLIST_PREFIX + token;
         return redisTemplate.hasKey(key);
+    }
+
+    public void clearRoom(Long docId) {
+        String verKey = DOC_VERSION_PREFIX + docId;
+        String textKey = DOC_TEXT_PREFIX + docId;
+        String histKey = DOC_HISTORY_PREFIX + docId;
+        redisTemplate.delete(Arrays.asList(verKey,textKey,histKey));
     }
 }
