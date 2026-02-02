@@ -37,6 +37,7 @@ const sendOp = (op) => {
   const msg = {
     clientId: clientId,
     version: currentVersion,
+    docId : props.docId,
     op: op
   }
   waitQueue.push(msg);

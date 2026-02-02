@@ -7,7 +7,7 @@ create table user (
   nickname varchar(30) not null,
   head_url varchar(100) ,
   create_time timestamp not null,
-  type int default 0 comment '1 - 普通用户 2 - 管理员 3 - 被禁用', 
+  type int default 1 comment '0 - 被禁用 1 - 普通用户 2 - 管理员 3 - 超级管理员', 
   unique key (account)
 );
 

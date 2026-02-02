@@ -3,12 +3,13 @@ package com.vigza.markweave.common;
 public class Constants {
 
   public static class UserType {
+    public static final int DISABLED = 0;
     public static final int NORMAL = 1;
     public static final int ADMIN = 2;
-    public static final int DISABLED = 3;
+    public static final int SUPADMIN = 3;
 
     public static boolean isValid(int value) {
-      if (value < 1 || value > 3)
+      if (value < 0 || value > 3)
         return false;
       return true;
     }
