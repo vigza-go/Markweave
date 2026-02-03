@@ -1,4 +1,4 @@
-package com.vigza.markweave.core;
+package com.vigza.markweave.common.util;
 
 import java.util.ArrayList;
 import java.util.List;

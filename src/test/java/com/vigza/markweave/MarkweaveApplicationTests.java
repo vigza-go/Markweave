@@ -1,6 +1,6 @@
 package com.vigza.markweave;
 
-import com.vigza.markweave.core.TextOperation;
+import com.vigza.markweave.common.util.TextOperation;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.UserMapper;
 

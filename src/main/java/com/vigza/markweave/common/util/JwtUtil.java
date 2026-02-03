@@ -39,10 +39,34 @@ public class JwtUtil {
         }
     }
 
-    public static User getUserFromToken(String token){
+    public User getUserFromToken(String token){
         JWT jwt = JWTUtil.parseToken(token);
         return (User) jwt.getPayload("user");
     }
 
-    
+    public String generateInvitationToken(Map<String, Object> payload) {
+        payload.put("iat", System.currentTimeMillis());
+        return JWTUtil.createToken(payload, secret.getBytes());
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getInvitationPayload(String token) {
+        try {
+            JWT jwt = JWTUtil.parseToken(token);
+            if (!jwt.setKey(secret.getBytes()).verify()) {
+                return null;
+            }
+            if (jwt.validate(0)) {
+                return null;
+            }
+            Object type = jwt.getPayload("type");
+            if (!"invitation".equals(type)) {
+                return null;
+            }
+            return (Map<String, Object>) jwt.getPayloads();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
 }

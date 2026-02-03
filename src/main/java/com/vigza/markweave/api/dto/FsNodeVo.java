@@ -5,7 +5,7 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 @Data
-public class FileNodeVo {
+public class FsNodeVo {
     private Long id;
     private String name;
     private Integer type;

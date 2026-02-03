@@ -1,59 +1,24 @@
 package com.vigza.markweave.core.service;
 
-import java.time.LocalDateTime;
+import java.util.List;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
-import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
+import com.vigza.markweave.api.dto.RecentDocVO;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
 
-@Service
-public class CollaborationService {
-    @Autowired
-    private CollaborationMapper collaborationMapper;
+public interface CollaborationService {
 
-    public void insert(Collaboration collaboration) {
-        collaborationMapper.insert(collaboration);
-    }
+    Boolean canRead(String token, Long docId);
 
-    public Integer checkPermission(Long userId, Long docId) {
-        LambdaQueryWrapper<Collaboration> lambdaQueryWrapper = new LambdaQueryWrapper<Collaboration>()
-                .eq(Collaboration::getDocId, docId)
-                .eq(Collaboration::getUserId, userId);
-        Collaboration collaboration = collaborationMapper.selectOne(lambdaQueryWrapper);
-        return collaboration != null ? collaboration.getRole() : 0;
-    }
+    Boolean canWrite(String token, Long docId);
 
-    public boolean canRead(Long userId, Long docId) {
-        Integer value = checkPermission(userId, docId);
-        if (value > 3 || value < 1) {
-            return false;
-        }
-        return true;
-    }
+    Result<?> updatePermission(String token, Long userId, Integer permission);
 
-    // 尚未调用
-    public void updateViewTime(Long userId, Long docId) {
-        LambdaUpdateWrapper<Collaboration> lambdaUpdateWrapper = new LambdaUpdateWrapper<Collaboration>()
-                .eq(Collaboration::getDocId, docId)
-                .eq(Collaboration::getUserId, userId)
-                .set(Collaboration::getLastViewTime, LocalDateTime.now());
-        collaborationMapper.update(lambdaUpdateWrapper);
-    }
-    // 返回协作者id
-    List<Long> selectCollaboratorsByDoc(Long docId);
+    Result<List<User>> selectCollaboratorsByDocId(String token, Long docId);
 
-    List<RecentDocVO> selectRecentDocs(Long userId, int limit);
+    Result<String> createInvitation(String token, Long docId, Integer permission);
 
-
-    // 生成一个jwt链接,包含doc信息 ，写入数据库
-    String createInvitaion(Long userId,Long docId,Integer permission，Integer expTime){
-
-    }
-
-    void 
-
+    Result<?> acceptInvitation(String userToken, String invToken);
 }

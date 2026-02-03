@@ -12,8 +12,9 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import com.vigza.markweave.common.util.TextOperation;
 import com.vigza.markweave.core.service.CollaborationService;
-import com.vigza.markweave.core.service.FileSystemService;
+import com.vigza.markweave.core.service.serviceImpl.FileSystemServiceImpl;
 import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
 import com.vigza.markweave.infrastructure.service.RedisService;
 
@@ -37,7 +38,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
     @Autowired
     private RedisService redisService;
 
-    private FileSystemService fsNodeService;
+    private FileSystemServiceImpl fsNodeService;
 
     @Autowired
     private CollaborationService collaborationService;

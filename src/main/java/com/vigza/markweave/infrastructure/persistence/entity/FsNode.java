@@ -25,7 +25,7 @@ public class FsNode {
   private String path;
   private Integer type;
   private Long ptId;
-  private Boolean isRecycled;
+  private Boolean recycled;
   private Long size;
   private LocalDateTime createTime;
   private LocalDateTime updateTime;
