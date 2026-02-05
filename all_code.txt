@@ -1,0 +1,2491 @@
+# MarkWeave - *正在开发*
+
+**前端** : vite vue monaco-editor
+
+**后端** : Spring Boot, WebSocket, MySQL, Redis, RabbitMQ, MinIO, OT 算法, SpringAI 
+
+**项目描述**： 
+- 该项目是一款实时 Markdown 协同编辑平台，支持多人在线同时编辑、AI 辅助创作及多格式转换。为解决协作过程中的内容冲突，自研了基于 OT算法的冲突协同模块，实现了高可用、低延迟的办公协作环境。
+
+**todolist:**
+- [x] 登陆jwt访问控制
+- [x] 文件系统云盘服务
+- [x] 文件权限管理服务
+- [x] 后端/前端ot算法
+- [ ] 分布式系统设计，使用Redis作为分布式锁、缓存各个文档的版本号、操作列表
+- [ ] 分布式系统设计，使用RabbitMQ 发布订阅、异步落库、延时重试
+- [ ] 需考虑使用RabbitMq的数据一致性
+- [ ] 需要处理前端发来操作消息的幂等性
+- [ ] 考虑前后端消息丢失的问题 
+- [ ] 集成日志收集工具
+- [ ] ai生成服务
+- [ ] 拆分成微服务
+- [ ] 前端开发
+- [ ] 前端undo/redo 栈
+
+### “为什么不用 RocketMQ？” 
+“在 Markweave 的选型中，优先考虑的是实时交互的低延迟。RabbitMQ 基于 Erlang 开发，在消息转发的时延上具有微秒级的优势，非常适合 OT 算法的操作流同步。此外，RabbitMQ 灵活的 Exchange 模型能通过 Fanout 模式轻松实现 WebSocket 集群的广播，而 RocketMQ 的设计初衷更多是解决海量吞吐和事务一致性，对于这种实时办公场景，RabbitMQ 的性价比和响应速度更高。”
+
+
+
+
+***分布式 OT 协作 UML 时序图***
+```mermaid
+sequenceDiagram
+    participant UserA as 用户 A (Client)
+    participant S1 as Server 1 (WebSocket)
+    participant Redis as Redis (Lock & Data)
+    participant MQ as RabbitMQ (Fanout Exchange)
+    participant S2 as Server 2 (WebSocket)
+    participant UserB as 用户 B (Client)
+
+    Note over UserA, UserB: 实时协作开始
+    UserA->>S1: 发送编辑操作 (op, clientVer)
+    
+    S1->>Redis: 尝试获取分布式锁 (docId)
+    alt 获取锁成功
+        Redis-->>S1: Lock Acquired (Watchdog 启动)
+        S1->>Redis: 获取当前版本 & 历史 Ops
+        S1->>S1: 执行 OT Transform (计算新 op')
+        S1->>Redis: 更新 FullText & Version++ & Push History
+        S1->>Redis: 释放锁
+        
+        S1->>MQ: 发送广播消息 (docId, finalOp, newVer)
+    else 获取锁失败 (冲突)
+        S1->>MQ: 转发至重试队列 (Retry Queue)
+        S1-->>UserA: (可选) 发送 Ack/等待通知
+    end
+
+    Note over MQ: Fanout 广播给所有服务器实例
+
+    MQ-->>S1: 收到广播消息
+    MQ-->>S2: 收到广播消息
+
+    S1->>S1: 检查本地是否有 docId 的 Session
+    S1->>UserA: 推送最终结果 (或 ACK)
+
+    S2->>S2: 检查本地是否有 docId 的 Session
+    S2->>UserB: 推送最终结果 (newOp)
+    
+    Note over UserB: 编辑同步完成
+```
+vigza@vigza-B250M-D2VX-SI:~/workspace/Markweave$ tree src
+src
+├── main
+│   ├── java
+│   │   └── com
+│   │       └── vigza
+│   │           └── markweave
+│   │               ├── api
+│   │               │   ├── controller
+│   │               │   │   └── AuthController.java
+│   │               │   ├── dto
+│   │               │   │   ├── AuthResponse.java
+│   │               │   │   ├── CreateFileRequest.java
+│   │               │   │   ├── FsNodeVo.java
+│   │               │   │   ├── InviteRequest.java
+│   │               │   │   ├── LoginRequest.java
+│   │               │   │   ├── MoveRequest.java
+│   │               │   │   ├── RecentDocVO.java
+│   │               │   │   ├── RegisterRequest.java
+│   │               │   │   └── RenameRequest.java
+│   │               │   └── websocket
+│   │               │       └── CollaborationHandler.java
+│   │               ├── common
+│   │               │   ├── BusinessException.java
+│   │               │   ├── Constants.java
+│   │               │   ├── GlobalExceptionHandler.java
+│   │               │   ├── Result.java
+│   │               │   └── util
+│   │               │       ├── IdGenerator.java
+│   │               │       ├── JwtUtil.java
+│   │               │       └── TextOperation.java
+│   │               ├── core
+│   │               │   └── service
+│   │               │       ├── CollaborationServiceImpl.java
+│   │               │       ├── CollaborationService.java
+│   │               │       ├── FileSystemServiceImpl.java
+│   │               │       ├── FileSystemService.java
+│   │               │       ├── UserServiceImpl.java
+│   │               │       └── UserService.java
+│   │               ├── infrastructure
+│   │               │   ├── config
+│   │               │   │   ├── JwtInterceptor.java
+│   │               │   │   ├── RabbitMqConfig.java
+│   │               │   │   ├── RedisConfig.java
+│   │               │   │   ├── RedissonConfig.java
+│   │               │   │   ├── WebConfig.java
+│   │               │   │   ├── WebSocketConfig.java
+│   │               │   │   └── WebSocketInterceptor.java
+│   │               │   ├── mq
+│   │               │   │   └── CollaborationMessageListener.java
+│   │               │   ├── persistence
+│   │               │   │   ├── entity
+│   │               │   │   │   ├── Collaboration.java
+│   │               │   │   │   ├── Doc.java
+│   │               │   │   │   ├── FsNode.java
+│   │               │   │   │   └── User.java
+│   │               │   │   └── mapper
+│   │               │   │       ├── CollaborationMapper.java
+│   │               │   │       ├── DocMapper.java
+│   │               │   │       ├── FsNodeMapper.java
+│   │               │   │       └── UserMapper.java
+│   │               │   └── service
+│   │               │       └── RedisService.java
+│   │               └── MarkweaveApplication.java
+│   └── resources
+│       └── application.properties
+└── test
+    └── java
+        └── com
+            └── vigza
+                └── markweave
+                    └── MarkweaveApplicationTests.java
+
+27 directories, 44 files
+
+FILE: ./src/main/java/com/vigza/markweave/core/service/UserService.java
+package com.vigza.markweave.core.service;
+
+import com.vigza.markweave.api.dto.AuthResponse;
+import com.vigza.markweave.api.dto.LoginRequest;
+import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+
+public interface UserService {
+
+    Result<AuthResponse> register(RegisterRequest request);
+
+    Result<AuthResponse> login(LoginRequest request);
+
+    Result<?> logout(String token);
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/core/service/FileSystemServiceImpl.java
+package com.vigza.markweave.core.service;
+
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
+
+import javax.annotation.PostConstruct;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.vigza.markweave.api.dto.FsNodeVo;
+import com.vigza.markweave.api.dto.RecentDocVO;
+import com.vigza.markweave.common.Constants;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.common.util.IdGenerator;
+import com.vigza.markweave.common.util.JwtUtil;
+import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
+import com.vigza.markweave.infrastructure.persistence.entity.Doc;
+import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
+import com.vigza.markweave.infrastructure.persistence.mapper.DocMapper;
+import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
+
+@Service
+public class FileSystemServiceImpl implements FileSystemService {
+    @Autowired
+    private FsNodeMapper fsNodeMapper;
+
+    @Autowired
+    private DocMapper docMapper;
+    @Autowired
+    private CollaborationService collaborationService;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @PostConstruct
+    public void init() {
+        FsNode root = fsNodeMapper.selectById(0);
+        if (root == null) {
+            root = new FsNode();
+            root.setId(0L);
+            root.setUserId(-1L);
+            root.setFaId(-1L);
+            root.setPath("/");
+            root.setType(Constants.FsNodeType.FOLDER);
+            root.setRecycled(false);
+            root.setCreateTime(LocalDateTime.now());
+            fsNodeMapper.insert(root);
+        }
+    }
+
+    @Transactional
+    public void initUserNodes(String token) {
+        User user = jwtUtil.getUserFromToken(token);
+        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(),0L, Constants.FsNodeType.FOLDER, token).getData();
+        Long faId = faNode.getId();
+        createNode("我的共享", user.getUserShareSpaceNodeId(),faId, Constants.FsNodeType.FOLDER, token);
+    }
+
+    // 记得参数校验filename不   能包含特殊字符
+    @Transactional
+    @Override
+    public Result<FsNode> createNode(String fileName,Long nodeId, Long faId, Integer fileType, String token) {
+        Result<FsNode> preResult = getAccess(faId, token, false);
+        if (!preResult.getCode().equals(200))
+            return preResult;
+        if (fileName == null || fileName.isEmpty()) {
+            return Result.error(400, "文件名不能为空");
+        }
+        FsNode faNode = (FsNode) preResult.getData();
+        if (faNode.getType().equals(Constants.FsNodeType.FOLDER) == false) {
+            return Result.error(409, "父节点不是一个文件夹");
+        }
+
+        if (!Constants.FsNodeType.isValid(fileType)) {
+            return Result.error(400, "文件类型不合法");
+        }
+
+        User user = jwtUtil.getUserFromToken(token);
+        if(nodeId == null){
+            nodeId = IdGenerator.nextId();
+        }
+        FsNode node = FsNode.builder()
+                .id(nodeId)
+                .userId(user.getId())
+                .docOwner(user.getNickname())
+                .name(fileName)
+                .faId(faId)
+                .path(faNode.getPath() + "/" + fileName)
+                .type(fileType)
+                .recycled(false)
+                .createTime(LocalDateTime.now())
+                .build();
+        if (fileType.equals(Constants.FsNodeType.FILE)) {
+            Long docId = IdGenerator.nextId();
+            Doc doc = new Doc(docId, "");
+            docMapper.insert(doc);
+
+            node.setDocId(docId);
+            node.setSize(0L);
+
+            collaborationService.updatePermission(user.getId(), docId, Constants.CollaborationPermission.CREATOR);
+        }
+        fsNodeMapper.insert(node);
+        return Result.success(node);
+    }
+
+    @Transactional
+    @Override
+    public Result<?> rename(Long nodeId, String newName, String token) {
+        Result<?> preResult = getAccess(nodeId, token, true);
+        if (!preResult.getCode().equals(200))
+            return preResult;
+        if (newName == null || newName.isEmpty()) {
+            return Result.error(400, "文件名不能为空");
+        }
+
+        FsNode node = (FsNode) preResult.getData();
+        node.setName(newName);
+
+        fsNodeMapper.updateById(node);
+        return Result.success();
+    }
+
+    @Transactional
+    @Override
+    public Result<?> move(Long fromId, Long toId, String token) {
+        Result<?> preResult1 = getAccess(fromId, token, true);
+        if (!preResult1.getCode().equals(200))
+            return preResult1;
+        Result<?> preResult2 = getAccess(toId, token, true);
+        if (!preResult2.getCode().equals(200))
+            return preResult2;
+
+        FsNode node = (FsNode) preResult1.getData();
+        FsNode targetNode = (FsNode) preResult2.getData();
+        if (targetNode.getType() != Constants.FsNodeType.FOLDER) {
+            return Result.error(409, "目标节点不是一个文件夹");
+        }
+
+        // 感谢ai提醒：禁止将文件夹移动到它自己的子文件夹中。
+        if (targetNode.getPath().startsWith(node.getPath())) {
+            return Result.error(400, "禁止将文件夹移动到它自己的子文件夹中");
+        }
+
+        node.setFaId(toId);
+        String fromPath = node.getPath() + "/";
+        String toPath = targetNode.getPath() + "/" + node.getName() + "/";
+        node.setPath(toPath);
+        fsNodeMapper.updateById(node);
+
+        if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
+            fsNodeMapper.updateChildPaths(fromPath, toPath);
+        }
+        return Result.success();
+    }
+
+    @Transactional
+    @Override
+    public Result<?> recycle(Long nodeId, String token) {
+        Result<?> pResult = getAccess(nodeId, token, true);
+        if (!pResult.getCode().equals(200))
+            return pResult;
+        FsNode node = (FsNode) pResult.getData();
+        node.setRecycled(true);
+        fsNodeMapper.updateById(node);
+
+        if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
+            fsNodeMapper.recycleChildPaths(node.getPath() + "/");
+
+        }
+
+        return Result.success();
+    }
+
+    @Override
+    public Result<List<FsNodeVo>> listFiles(Long faId, String token) {
+        Result<?> preResult = getAccess(faId, token, true);
+        if (!preResult.getCode().equals(200))
+            return (Result<List<FsNodeVo>>) preResult;
+        FsNode faNode = (FsNode) preResult.getData();
+
+        List<FsNode> nodes = fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
+                .eq(FsNode::getFaId, faId)
+                .eq(FsNode::getRecycled, false)
+                .orderByAsc(FsNode::getName));
+
+        Set<Long> ptIds = nodes.stream()
+                .filter(node -> node.getType().equals(Constants.FsNodeType.SHORTCUT) && node.getPtId() != null)
+                .map(node -> node.getPtId())
+                .collect(Collectors.toSet());
+
+        List<FsNode> ptrList = ptIds.isEmpty() ? new ArrayList<FsNode>() : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
+                .in(FsNode::getId, ptIds));
+
+        Map<Long, FsNode> targetMap = ptrList.stream().collect(Collectors.toMap(FsNode::getId, n -> n));
+
+        List<FsNodeVo> result = nodes.stream().map(node -> {
+            FsNodeVo vo = new FsNodeVo();
+            copyBaseProperties(node, vo);
+            if (node.getType().equals(Constants.FsNodeType.SHORTCUT) && node.getPtId() != null) {
+                copyBaseProperties(targetMap.get(node.getPtId()), vo);
+                vo.setPtId(node.getPtId());
+
+            }
+            return vo;
+
+        }).collect(Collectors.toList());
+
+        return Result.success(result);
+    }
+
+    private void copyBaseProperties(FsNode source, FsNodeVo target) {
+        target.setId(source.getId());
+        target.setType(source.getType());
+        target.setName(source.getName());
+        target.setSize(source.getSize());
+        target.setUpdateTime(source.getUpdateTime());
+        target.setCreateTime(source.getCreateTime());
+        target.setOwnerName(source.getDocOwner());
+    }
+
+    // 不严格条件下，允许在根节点下创建个人云盘节点
+    private Result<FsNode> getAccess(Long nodeId, String token, Boolean strict) {
+        User user = jwtUtil.getUserFromToken(token);
+        FsNode node = fsNodeMapper.selectById(nodeId);
+        if (node == null) {
+            return Result.error(404, "请求文件不存在");
+        }
+        Boolean allowAccess = (user.getType().equals(Constants.UserType.ADMIN)) ||
+                (node.getUserId().equals(user.getId())) ||
+                (!strict && nodeId.equals(0L));
+        if (!allowAccess) {
+            return Result.error(403, "未获得操作权限");
+        }
+        return Result.success(node);
+    }
+
+    @Transactional
+    @Override
+    public void updateDocContent(Long docId, String content) {
+        docMapper.updateContent(docId, content);
+
+        long newSize = content.getBytes(StandardCharsets.UTF_8).length;
+        LambdaUpdateWrapper<FsNode> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(FsNode::getDocId, docId)
+                .set(FsNode::getSize, newSize)
+                .set(FsNode::getUpdateTime, LocalDateTime.now());
+        fsNodeMapper.update(updateWrapper);
+    }
+
+    @Override
+    public Result<?> updateViewTime(Long nodeId, String token) {
+        Result<?> preResult = getAccess(nodeId, token, true);
+        if (!preResult.getCode().equals(200))
+            return preResult;
+        FsNode node = fsNodeMapper.selectOne(new LambdaQueryWrapper<FsNode>().eq(FsNode::getId, nodeId));
+        if (node != null) {
+            node.setLastViewTime(LocalDateTime.now());
+            fsNodeMapper.updateById(node);
+            return Result.success();
+        }
+        return Result.error(404, "未找到该文件");
+    }
+
+    @Override
+    public Result<List<RecentDocVO>> selectRecentDocList(String token) {
+        User user = jwtUtil.getUserFromToken(token);
+        Long userId = user.getId();
+
+        List<FsNode> fsNodes = fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
+                .eq(FsNode::getUserId, userId)
+                .orderByDesc(FsNode::getLastViewTime)
+                .last("limit 50"));
+        if (fsNodes == null)
+            fsNodes = new ArrayList<FsNode>();
+
+        List<Long> ptIds = fsNodes.stream().filter(n -> n.getType().equals(Constants.FsNodeType.SHORTCUT))
+                .map(n -> n.getPtId()).collect(Collectors.toList());
+
+        Map<Long, FsNode> map = ptIds.isEmpty() ? new HashMap<Long,FsNode>() : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
+                .in(FsNode::getId, ptIds)).stream().collect(Collectors.toMap(FsNode::getId,n -> n));
+
+        List<RecentDocVO> result = fsNodes.stream()
+                .map(fsNode -> {
+                    FsNode targetNode = fsNode;
+                    if(fsNode.getType().equals(Constants.FsNodeType.SHORTCUT)){
+                        targetNode = map.get(fsNode.getPtId());
+                    }
+                    if(targetNode == null) return null;
+                    return RecentDocVO.builder()
+                        .docId(targetNode.getDocId())
+                        .docName(targetNode.getName())
+                        .ownerId(targetNode.getUserId())
+                        .size(targetNode.getSize())
+                        .lastViewTime(fsNode.getLastViewTime()) // 依然用当前用户的查看时间
+                        .build();
+                })
+                .filter(item -> item != null)
+                .collect(Collectors.toList());
+
+        return Result.success(result);
+    }
+
+    @Override
+    public Result<FsNode> createPtrNode(Long faId, Long srcNodeId, String token) {
+        User user = jwtUtil.getUserFromToken(token);
+        Result<?> preResult = getAccess(srcNodeId, token, true);
+        if (!preResult.getCode().equals(200))
+            return (Result<FsNode>) preResult;
+        Result<?> faResult = getAccess(faId, token, true);
+        if (!faResult.getCode().equals(200))
+            return (Result<FsNode>) faResult;
+        FsNode srcNode = (FsNode) preResult.getData();
+        FsNode faNode = (FsNode) faResult.getData();
+        FsNode node = FsNode.builder()
+        .id(IdGenerator.nextId())
+        .userId(user.getId())
+        .docOwner(srcNode.getDocOwner())
+        .name(srcNode.getName() + "_快捷方式")
+        .faId(faId)
+        .path(faNode.getPath() + "/" + srcNode.getName() + "_快捷方式")
+        .type(Constants.FsNodeType.SHORTCUT)
+        .ptId(srcNodeId)
+        .recycled(false)
+        .size(0L)
+        .createTime(LocalDateTime.now())
+        .build();
+        fsNodeMapper.insert(node);
+        return Result.success(node);
+        
+    }
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/core/service/CollaborationServiceImpl.java
+package com.vigza.markweave.core.service;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.vigza.markweave.common.Constants;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.common.util.IdGenerator;
+import com.vigza.markweave.common.util.JwtUtil;
+import com.vigza.markweave.common.util.TextOperation;
+import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
+import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
+import com.vigza.markweave.infrastructure.persistence.mapper.UserMapper;
+import com.vigza.markweave.infrastructure.service.RedisService;
+
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import lombok.extern.log4j.Log4j;
+import lombok.extern.slf4j.Slf4j;
+
+@Service
+@Slf4j
+public class CollaborationServiceImpl implements CollaborationService {
+
+    @Autowired
+    private CollaborationMapper collaborationMapper;
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private FsNodeMapper fsNodeMapper;
+
+    @Autowired
+    private RedissonClient redissonClient;
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+    @Autowired
+    private RedisService redisService;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Override
+    public void updatePermission(Long userId, Long docId, Integer permission) {
+        Collaboration collaboration = Collaboration.builder()
+                .id(userId.toString() + "_" + docId.toString())
+                .userId(userId)
+                .docId(docId)
+                .permission(permission)
+                .updateTime(LocalDateTime.now())
+                .build();
+        collaborationMapper.insertOrUpdate(collaboration);
+    }
+
+    @Override
+    public Result<?> updatePermission(String token, Long targetUserId, Long docId, Integer permission) {
+        User user = jwtUtil.getUserFromToken(token);
+        Integer role = getPermission(user.getId(), docId);
+        if (role == null || !role.equals(Constants.CollaborationPermission.CREATOR)) {
+            return Result.error(403, "您不是该文档的创建者，无权修改协作者权限");
+        }
+        if (targetUserId == null || docId == null || permission == null ||
+                !Constants.CollaborationPermission.isValid(permission)) {
+            return Result.error(400, "参数有误");
+        }
+        updatePermission(targetUserId, docId, permission);
+        return Result.success();
+    }
+
+    @Override
+    public Result<String> createInvitation(String token, Long docId, Integer permission, Integer expTime) {
+        User user = jwtUtil.getUserFromToken(token);
+        Integer role = getPermission(user.getId(), docId);
+        if (role == null || !role.equals(Constants.CollaborationPermission.CREATOR)) {
+            return Result.error(403, "您不是该文档的创建者，无权邀请他人协作");
+        }
+        String invToken = jwtUtil.generateInvitaionToken(docId, permission, expTime);
+        return Result.success(invToken);
+    }
+
+    @Override
+    public Boolean canRead(String token, Long docId) {
+        User user = jwtUtil.getUserFromToken(token);
+        if (user == null) {
+            return false;
+        }
+        Integer permission = getPermission(user.getId(), docId);
+        return permission != null && Constants.CollaborationPermission.isValid(permission);
+    }
+
+    @Override
+    public Boolean canWrite(String token, Long docId) {
+        User user = jwtUtil.getUserFromToken(token);
+        if (user == null) {
+            return false;
+        }
+        Integer permission = getPermission(user.getId(), docId);
+        return permission != null && (Constants.CollaborationPermission.isValid(permission)
+                && !permission.equals(Constants.CollaborationPermission.READ_ONLY));
+    }
+
+    public Integer getPermission(Long userId, Long docId) {
+        LambdaQueryWrapper<Collaboration> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Collaboration::getUserId, userId)
+                .eq(Collaboration::getDocId, docId);
+        Collaboration collaboration = collaborationMapper.selectOne(queryWrapper);
+        if (collaboration != null) {
+            return collaboration.getPermission();
+        }
+        return null;
+
+    }
+
+    @Override
+    public Result<List<User>> selectCollaboratorsByDocId(String token, Long docId) {
+        User user = jwtUtil.getUserFromToken(token);
+        if (user == null) {
+            return Result.error(401, "未登录");
+        }
+
+        if (!canRead(token, docId)) {
+            return Result.error(403, "无权限访问此文档");
+        }
+
+        LambdaQueryWrapper<Collaboration> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(Collaboration::getDocId, docId);
+        List<Collaboration> collaborations = collaborationMapper.selectList(queryWrapper);
+
+        List<Long> userIds = collaborations.stream()
+                .map(Collaboration::getUserId)
+                .collect(Collectors.toList());
+
+        if (userIds.isEmpty()) {
+            return Result.success(java.util.Collections.emptyList());
+        }
+
+        List<User> users = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .in(User::getId, userIds));
+
+        users.forEach(u -> {
+            u.setPassword(null);
+            u.setSalt(null);
+        });
+
+        return Result.success(users);
+    }
+
+    @Override
+    public Result<?> acceptInvitation(String userToken, String invToken) {
+        User user = jwtUtil.getUserFromToken(userToken);
+        if (user == null) {
+            return Result.error(401, "未登录");
+        }
+
+        if (jwtUtil.validateToken(invToken) == false) {
+            return Result.error(400, "邀请链接无效或已过期");
+        }
+
+        Long docId = jwtUtil.getDocIdFromInvToken(invToken);
+        Integer permission = jwtUtil.getPermissionFromInvToken(invToken);
+
+        LambdaQueryWrapper<Collaboration> existQuery = new LambdaQueryWrapper<>();
+        existQuery.eq(Collaboration::getDocId, docId)
+                .eq(Collaboration::getUserId, user.getId());
+        Collaboration existingCollaboration = collaborationMapper.selectOne(existQuery);
+        if (existingCollaboration != null) {
+            if (existingCollaboration.getPermission().equals(Constants.CollaborationPermission.READ_ONLY)) {
+                updatePermission(user.getId(), docId, permission);
+            }
+            return Result.success();
+        }
+        Collaboration collaboration = Collaboration.builder()
+                .id(user.getId().toString() + "_" + docId.toString())
+                .userId(user.getId())
+                .docId(docId)
+                .permission(permission)
+                .updateTime(LocalDateTime.now())
+                .build();
+        collaborationMapper.insert(collaboration);
+        return Result.success();
+    }
+
+    @Override
+    public void processOperation(Long docId, JSONObject clientMsg) {
+
+        String lockKey = "lock:doc:" + docId;
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean isLocked = false;
+        try {
+            isLocked = lock.tryLock(3000, TimeUnit.SECONDS);
+            if (isLocked) {
+                Long clientVer = clientMsg.getLong("version");
+                TextOperation clientOp = null;
+                Long currentVersion = redisService.getVersion(docId);
+                if (clientVer < currentVersion) {
+                    // 我们变换的时候，需要取出client的op，然后和历史op，进行transform，然后获得op'
+                    clientOp = new TextOperation().fromJSON(clientMsg.getJSONArray("op").toString());
+
+                    // 我们广播的version的就是它的操作clientaVer，所以clientVer执行过，这里应该从 + 1 开始
+                    Long size = redisService.getHistoryListSize(docId);
+                    List<String> historyList = redisService
+                            .getHistoryRange(docId, size - (currentVersion - clientVer), size - 1)
+                            .stream()
+                            .map(obj -> obj.toString()).collect(Collectors.toList());
+                    for (String history : historyList) {
+                        JSONObject hisObj = JSONUtil.parseObj(history);
+
+                        if (hisObj.getStr("clientId").compareTo(clientMsg.getStr("clientId")) < 0) {
+                            TextOperation historyOp = new TextOperation()
+                                    .fromJSON(hisObj.getJSONArray("op").toString());
+                            TextOperation[] transformed = TextOperation.transform(historyOp, clientOp);
+                            clientOp = transformed[1];
+                        } else {
+                            TextOperation historyOp = new TextOperation()
+                                    .fromJSON(hisObj.getJSONArray("op").toString());
+                            TextOperation[] transformed = TextOperation.transform(clientOp, historyOp);
+                            clientOp = transformed[0];
+                        }
+
+                    }
+                    clientMsg.set("op", clientOp.toJSON());
+                }
+
+                currentVersion = redisService.getAndIncrementVersion(docId);
+                clientMsg.set("version", currentVersion);
+                redisService.pushHistory(docId, clientMsg.toString());
+                clientOp = new TextOperation().fromJSON(clientMsg.getStr("op"));
+                // 我们拿着这个op然后apply到fullText上
+                String fullText = redisService.getFullText(docId);
+                fullText = clientOp.apply(fullText.toString());
+                redisService.setFullText(docId, fullText);
+                String response = JSONUtil.toJsonStr(clientMsg);
+                rabbitTemplate.convertAndSend("mw.collaboration.fanout", "", response);
+            } else {
+                log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
+                rabbitTemplate.convertAndSend("mw.retry.exchange", "retry.key", clientMsg);
+            }
+        } catch (InterruptedException e) {
+            log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
+        } finally {
+            if (isLocked) {
+                lock.unlock();
+            }
+        }
+
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/core/service/CollaborationService.java
+package com.vigza.markweave.core.service;
+
+import java.util.List;
+
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+
+import cn.hutool.json.JSONObject;
+
+public interface CollaborationService {
+
+
+    Integer getPermission(Long userId,Long docId);
+    
+    Boolean canRead(String token, Long docId);
+    
+    Boolean canWrite(String token, Long docId);
+
+    void updatePermission(Long userId,Long docId,Integer permission);
+    
+    Result<?> updatePermission(String token, Long targetUserId,Long docId,Integer permission);
+    
+    Result<List<User>> selectCollaboratorsByDocId(String token, Long docId);
+
+    Result<String> createInvitation(String token, Long docId, Integer permission,Integer expTime);
+
+    Result<?> acceptInvitation(String userToken, String invToken);
+
+
+    void processOperation(Long docId,JSONObject clientMsg);
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/core/service/UserServiceImpl.java
+package com.vigza.markweave.core.service;
+
+import java.time.LocalDateTime;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.vigza.markweave.api.dto.AuthResponse;
+import com.vigza.markweave.api.dto.LoginRequest;
+import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.common.util.IdGenerator;
+import com.vigza.markweave.common.util.JwtUtil;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+import com.vigza.markweave.infrastructure.persistence.mapper.UserMapper;
+import com.vigza.markweave.infrastructure.service.RedisService;
+
+import cn.hutool.crypto.digest.BCrypt;
+
+
+@Service
+public class UserServiceImpl implements UserService {
+    @Autowired
+    private UserMapper userMapper;
+
+    @Autowired
+    private RedisService redisService;
+
+    @Autowired
+    private FileSystemServiceImpl fileSystemService;
+
+    @Autowired
+    private JwtUtil jwtUtils;
+
+    private AuthResponse generateAuthResponse(User user) {
+        user.setPassword(null);
+        user.setSalt(null);
+        String token = jwtUtils.generateToken(user);
+
+
+        AuthResponse.UserDTO userDTO = AuthResponse.UserDTO.builder()
+                .id(user.getId())
+                .account(user.getAccount())
+                .nickname(user.getNickname())
+                .headUrl(user.getHeadUrl())
+                .type(user.getType())
+                .build();
+        return AuthResponse.builder().token(token).user(userDTO).build();
+    }
+
+    @Override
+    public Result<AuthResponse> register(RegisterRequest request) {
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            return Result.error(400, "两次输入密码不一致");
+        }
+        LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(User::getAccount, request.getAccount());
+        if (userMapper.selectCount(queryWrapper) > 0) {
+            return Result.error(409, "账号已存在");
+        }
+        User user = new User();
+        user.setAccount(request.getAccount());
+        String salt = BCrypt.gensalt();
+        user.setPassword(BCrypt.hashpw(request.getPassword(), salt ));
+        user.setSalt(salt);
+        user.setNickname(request.getNickname());
+        user.setCreateTime(LocalDateTime.now());
+        user.setType(0);
+        user.setId(IdGenerator.nextId());
+        user.setUserSpaceNodeId(IdGenerator.nextId());
+        user.setUserShareSpaceNodeId(IdGenerator.nextId());
+        userMapper.insert(user);
+        AuthResponse authResponse = generateAuthResponse(user);
+        fileSystemService.initUserNodes(authResponse.getToken());
+        return Result.success(authResponse);
+    }
+
+    @Override
+    public Result<AuthResponse> login(LoginRequest request) {
+        LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(User::getAccount, request.getAccount());
+        User user = userMapper.selectOne(queryWrapper);
+        if (user == null) {
+            return Result.error(500, "账号不存在");
+        }
+        if (!BCrypt.checkpw(request.getPassword(), user.getPassword())) {
+            return Result.error(500, "密码错误");
+        }
+        return Result.success(generateAuthResponse(user));
+    }
+
+
+    @Override
+    public Result<?> logout(String token){
+        if(token != null && jwtUtils.validateToken(token)){
+            redisService.addToBlacklist(token);
+        }
+        return Result.success();
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/core/service/FileSystemService.java
+
+package com.vigza.markweave.core.service;
+
+import java.util.List;
+import com.vigza.markweave.api.dto.FsNodeVo;
+import com.vigza.markweave.api.dto.RecentDocVO;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
+
+public interface FileSystemService {
+
+    Result<FsNode> createNode(String fileName,Long nodeId, Long faId, Integer fileType, String token);
+
+    // 应当由CollaborationService 的 acceptInvation 或者 前端创建快捷方式调用
+    Result<FsNode> createPtrNode(Long faId,Long srcNodeId,String token);
+
+    Result<?> rename(Long nodeId, String newName, String token);
+
+    Result<?> move(Long fromId, Long toId, String token);
+
+    Result<?> recycle(Long nodeId, String token);
+
+    Result<List<FsNodeVo>> listFiles(Long faId, String token);
+
+    // 在 websocket 中调用
+    void updateDocContent(Long docId, String content);
+
+    // 应当在用户打开文档时，关闭文章后调用
+    Result<?> updateViewTime(Long nodeId,String token);
+
+    Result<List<RecentDocVO>> selectRecentDocList(String token);
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/MarkweaveApplication.java
+package com.vigza.markweave;
+
+import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@MapperScan("com.vigza.markweave.infrastructure.persistence.mapper")
+@SpringBootApplication
+public class MarkweaveApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(MarkweaveApplication.class, args);
+	}
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/common/Constants.java
+package com.vigza.markweave.common;
+
+public class Constants {
+
+  public static class UserType {
+    public static final int DISABLED = 0;
+    public static final int NORMAL = 1;
+    public static final int ADMIN = 2;
+    public static final int SUPADMIN = 3;
+
+    public static boolean isValid(int value) {
+      if (value < 0 || value > 3)
+        return false;
+      return true;
+    }
+  }
+
+  public static class FsNodeType {
+    public static final int FILE = 1;
+    public static final int FOLDER = 2;
+    public static final int SHORTCUT = 3;
+
+    public static boolean isValid(int value) {
+      if (value < 1 || value > 3)
+        return false;
+      return true;
+    }
+  }
+
+  public static class CollaborationPermission {
+    public static final int CREATOR = 1;
+    public static final int READ_WRITE = 2;
+    public static final int READ_ONLY = 3;
+
+    public static boolean isValid(int value) {
+      if (value < 1 || value > 3)
+        return false;
+      return true;
+    }
+
+  }
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/common/Result.java
+package com.vigza.markweave.common;
+
+
+import lombok.Data;
+
+@Data
+public class Result<T> {
+    private Integer code; // 状态码
+    private String message;
+    private T data; // 具体数据负载
+    private long timestamp ;
+
+
+    private Result(Integer code, String message, T data) {
+        this.code = code;
+        this.message = message;
+        this.data = data;
+        this.timestamp = System.currentTimeMillis();
+    }
+
+    public static <T>  Result<T> success(T data) {
+        return new Result<T>(200,"操作成功",data);
+    }
+
+    public static Result<?> success() {
+        return success("操作成功");
+    }
+
+    public static <T> Result<T> error(Integer code, String message) {
+        return new Result<T>(code, message, null);
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/common/util/IdGenerator.java
+package com.vigza.markweave.common.util;
+
+import cn.hutool.core.lang.Snowflake;
+import cn.hutool.core.util.IdUtil;
+
+public class IdGenerator {
+    private static Snowflake snowflake;
+    
+    static {
+        long workerId = 0; 
+        long datacenterId = 0;
+        snowflake = IdUtil.getSnowflake(workerId, datacenterId);
+    }
+    
+    public static long nextId() {
+        return snowflake.nextId();
+    }
+    
+    public static String nextIdStr() {
+        return snowflake.nextIdStr();
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/common/util/TextOperation.java
+package com.vigza.markweave.common.util;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONUtil;
+
+public class TextOperation {
+    private List<Object> ops;
+    private int baseLength;
+    private int targetLength;
+
+    public TextOperation() {
+        this.ops = new ArrayList<>();
+        this.baseLength = 0;
+        this.targetLength = 0;
+    }
+
+    // --- 类型判断辅助方法 ---
+
+    public static boolean isRetain(Object op) {
+        return op instanceof Integer && (Integer) op > 0;
+    }
+
+    public static boolean isInsert(Object op) {
+        return op instanceof String;
+    }
+
+    public static boolean isDelete(Object op) {
+        return op instanceof Integer && (Integer) op < 0;
+    }
+
+    // --- Builder 方法 ---
+
+    public TextOperation retain(int n) {
+        if (n == 0)
+            return this;
+        this.baseLength += n;
+        this.targetLength += n;
+        if (!ops.isEmpty() && isRetain(ops.get(ops.size() - 1))) {
+            ops.set(ops.size() - 1, (Integer) ops.get(ops.size() - 1) + n);
+        } else {
+            ops.add(n);
+        }
+        return this;
+    }
+
+    public TextOperation insert(String str) {
+        if (str == null || str.isEmpty())
+            return this;
+        this.targetLength += str.length();
+        if (!ops.isEmpty() && isInsert(ops.get(ops.size() - 1))) {
+            ops.set(ops.size() - 1, (String) ops.get(ops.size() - 1) + str);
+        } else if (!ops.isEmpty() && isDelete(ops.get(ops.size() - 1))) {
+            // 规范化：Insert 永远在 Delete 之前
+            Object lastOp = ops.remove(ops.size() - 1);
+            if (!ops.isEmpty() && isInsert(ops.get(ops.size() - 1))) {
+                ops.set(ops.size() - 1, (String) ops.get(ops.size() - 1) + str);
+            } else {
+                ops.add(str);
+            }
+            ops.add(lastOp);
+        } else {
+            ops.add(str);
+        }
+        return this;
+    }
+
+    public TextOperation delete(int n) {
+        if (n == 0)
+            return this;
+        if (n > 0)
+            n = -n;
+        this.baseLength -= n;
+        if (!ops.isEmpty() && isDelete(ops.get(ops.size() - 1))) {
+            ops.set(ops.size() - 1, (Integer) ops.get(ops.size() - 1) + n);
+        } else {
+            ops.add(n);
+        }
+        return this;
+    }
+
+    // --- 核心算法：Transform ---
+
+    public static TextOperation[] transform(TextOperation op1, TextOperation op2) {
+        if (op1.baseLength != op2.baseLength) {
+            throw new RuntimeException("Base lengths must be equal");
+        }
+
+        TextOperation op1Prime = new TextOperation();
+        TextOperation op2Prime = new TextOperation();
+
+        List<Object> ops1 = new ArrayList<>(op1.ops);
+        List<Object> ops2 = new ArrayList<>(op2.ops);
+
+        int i1 = 0, i2 = 0;
+
+        // 模拟 JS 的 shift() 逻辑
+        Object o1 = null, o2 = null;
+
+        while (i1 < ops1.size() || i2 < ops2.size() || o1 != null || o2 != null) {
+            if (o1 == null && i1 < ops1.size())
+                o1 = ops1.get(i1++);
+            if (o2 == null && i2 < ops2.size())
+                o2 = ops2.get(i2++);
+
+            // Case: Insert
+            if (isInsert(o1)) {
+                op1Prime.insert((String) o1);
+                op2Prime.retain(((String) o1).length());
+                o1 = null;
+                continue;
+            }
+            if (isInsert(o2)) {
+                op1Prime.retain(((String) o2).length());
+                op2Prime.insert((String) o2);
+                o2 = null;
+                continue;
+            }
+
+            if (o1 == null || o2 == null)
+                break;
+
+            // Case: Retain/Retain, Delete/Delete, Retain/Delete...
+            if (isRetain(o1) && isRetain(o2)) {
+                int r1 = (Integer) o1, r2 = (Integer) o2;
+                if (r1 > r2) {
+                    op1Prime.retain(r2);
+                    op2Prime.retain(r2);
+                    o1 = r1 - r2;
+                    o2 = null;
+                } else if (r1 == r2) {
+                    op1Prime.retain(r1);
+                    op2Prime.retain(r1);
+                    o1 = null;
+                    o2 = null;
+                } else {
+                    op1Prime.retain(r1);
+                    op2Prime.retain(r1);
+                    o2 = r2 - r1;
+                    o1 = null;
+                }
+            } else if (isDelete(o1) && isDelete(o2)) {
+                int d1 = -(Integer) o1, d2 = -(Integer) o2;
+                if (d1 > d2) {
+                    o1 = -(d1 - d2);
+                    o2 = null;
+                } else if (d1 == d2) {
+                    o1 = null;
+                    o2 = null;
+                } else {
+                    o2 = -(d2 - d1);
+                    o1 = null;
+                }
+            } else if (isDelete(o1) && isRetain(o2)) {
+                int d1 = -(Integer) o1, r2 = (Integer) o2;
+                if (d1 > r2) {
+                    op1Prime.delete(r2);
+                    o1 = -(d1 - r2);
+                    o2 = null;
+                } else if (d1 == r2) {
+                    op1Prime.delete(r2);
+                    o1 = null;
+                    o2 = null;
+                } else {
+                    op1Prime.delete(d1);
+                    o2 = r2 - d1;
+                    o1 = null;
+                }
+            } else if (isRetain(o1) && isDelete(o2)) {
+                int r1 = (Integer) o1, d2 = -(Integer) o2;
+                if (r1 > d2) {
+                    op2Prime.delete(d2);
+                    o1 = r1 - d2;
+                    o2 = null;
+                } else if (r1 == d2) {
+                    op2Prime.delete(r1);
+                    o1 = null;
+                    o2 = null;
+                } else {
+                    op2Prime.delete(r1);
+                    o2 = -(d2 - r1);
+                    o1 = null;
+                }
+            }
+        }
+        return new TextOperation[] { op1Prime, op2Prime };
+    }
+
+    // --- 应用到字符串 ---
+
+    public String apply(String str) {
+        if (str.length() != baseLength) {
+            throw new RuntimeException("The operation's base length must be equal to the string's length.");
+        }
+        StringBuilder sb = new StringBuilder();
+        int strIndex = 0;
+        for (Object op : ops) {
+            if (isRetain(op)) {
+                int n = (Integer) op;
+                sb.append(str, strIndex, strIndex + n);
+                strIndex += n;
+            } else if (isInsert(op)) {
+                sb.append((String) op);
+            } else if (isDelete(op)) {
+                strIndex -= (Integer) op;
+            }
+        }
+        return sb.toString();
+    }
+
+    // --- Getter & Utils ---
+    public List<Object> getOps() {
+        return ops;
+    }
+
+    public int getBaseLength() {
+        return baseLength;
+    }
+
+    public int getTargetLength() {
+        return targetLength;
+    }
+
+    @Override
+    public String toString() {
+        return ops.toString();
+    }
+
+    public String toJSON() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+        for (Object op : ops) {
+            if (isRetain(op)) {
+                sb.append((Integer) op);
+            } else if (isInsert(op)) {
+                sb.append("\"").append((String) op).append("\"");
+            } else if (isDelete(op)) {
+                sb.append((Integer) op);
+            }
+            sb.append(",");
+        }
+        sb.setCharAt(sb.length() - 1, ']');
+        return sb.toString();
+    }
+
+    public TextOperation fromJSON(String json) {
+        JSONArray jsArr = JSONUtil.parseArray(json);
+        for (Object op : jsArr) {
+            if (isRetain(op)) {
+                retain((Integer) op);
+            } else if (isInsert(op)) {
+                insert((String) op);
+            } else if (isDelete(op)) {
+                delete((Integer) op);
+            }
+        }
+        return this;
+    }
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/common/util/JwtUtil.java
+package com.vigza.markweave.common.util;
+
+import java.util.HashMap;
+import java.util.Map;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
+
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.jwt.JWT;
+import cn.hutool.jwt.JWTPayload;
+import cn.hutool.jwt.JWTUtil;
+import lombok.Data;
+
+@Component
+@Data
+public class JwtUtil {
+    private String secret = "vigza-2026";
+
+    private Long expiration = 604800L;
+
+    private String header = "Authorization";
+
+    private String prefix = "Bearer";
+
+    public String generateToken(User user){
+        Map<String,Object> payload = new HashMap<>();
+        payload.put("user",user);
+        long now  = System.currentTimeMillis() / 1000;
+        payload.put(JWTPayload.ISSUED_AT,now);
+        payload.put(JWTPayload.EXPIRES_AT,now + expiration );
+        return JWTUtil.createToken(payload,secret.getBytes());
+    }
+
+    public String generateInvitaionToken(Long docId,Integer permission,Integer expTime){
+        Map<String,Object> payload = new HashMap<>();
+        payload.put("docId",docId);
+        payload.put("permission",permission);
+        long now = System.currentTimeMillis() / 1000;
+        payload.put(JWTPayload.ISSUED_AT,now);
+        payload.put(JWTPayload.EXPIRES_AT,now + expTime);
+        return JWTUtil.createToken(payload,secret.getBytes());
+    }
+
+    public boolean validateToken(String token){
+        try{
+            JWT jwt = JWTUtil.parseToken(token);
+            return jwt.setKey(secret.getBytes()).verify() && jwt.validate(0);
+        }catch (Exception e){
+            return false;
+        }
+    }
+
+    public User getUserFromToken(String token){
+        JWT jwt = JWTUtil.parseToken(token);
+        Object userObject =  jwt.getPayload("user");
+        return BeanUtil.toBean(userObject,User.class); 
+    }
+
+    public Long getDocIdFromInvToken(String invToken){
+        JWT jwt = JWTUtil.parseToken(invToken);
+        Object docIdObject =  jwt.getPayload("docId");
+        return BeanUtil.toBean(docIdObject, Long.class);
+    }    
+
+    public Integer getPermissionFromInvToken(String invToken){
+        JWT jwt = JWTUtil.parseToken(invToken);
+        Object pObject = jwt.getPayload("permission");
+        return BeanUtil.toBean(pObject,Integer.class);
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/common/GlobalExceptionHandler.java
+package com.vigza.markweave.common;
+
+import lombok.extern.slf4j.Slf4j;
+
+import java.util.stream.Collectors;
+
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.http.HttpStatus;
+
+@Slf4j
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    /**
+     * 捕获自定义业务异常
+     * 
+     * @param e
+     * @return
+     */
+    @ExceptionHandler(BusinessException.class)
+    public Result<?> handleBusinessException(BusinessException e) {
+        log.warn("业务异常:{}", e.getMessage());
+        return Result.error(e.getCode(), e.getMessage());
+    }
+
+    /**
+     * 捕获系统未知运行时异常
+     * 
+     * @param e
+     * @return
+     */
+    @ExceptionHandler(RuntimeException.class)
+    public Result<?> handleRuntimeException(RuntimeException e) {
+        log.error("系统运行异常:{}", e.getMessage());
+        return Result.error(500, "系统繁忙，请稍后再试");
+    }
+
+    /**
+     * 捕获参数校验异常
+     * 
+     * @param e
+     * @return
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.OK)
+    public Result<?> handleValidationException(MethodArgumentNotValidException e) {
+        BindingResult bindingResult = e.getBindingResult();
+        String errorMessage = bindingResult.getFieldErrors().stream()
+                .map(fieldError -> fieldError.getField() + ": " + fieldError.getDefaultMessage())
+                .collect(Collectors.joining(", "));
+
+        return Result.error(400, errorMessage);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public Result<?> handleException(Exception e) {
+        log.error("其它异常:{}", e.getMessage());
+        return Result.error(500, "服务器异常");
+    }
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/common/BusinessException.java
+package com.vigza.markweave.common;
+
+public class BusinessException extends RuntimeException {
+    private final Integer code;
+
+    public BusinessException(Integer code, String message) {
+        super(message);
+        this.code = code;
+    }
+
+    public Integer getCode() {
+        return code;
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/MoveRequest.java
+package com.vigza.markweave.api.dto;
+
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class MoveRequest {
+    @NotNull
+    private Long id;
+
+    @NotNull
+    private Long targetFolderId;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/RecentDocVO.java
+package com.vigza.markweave.api.dto;
+
+import java.time.LocalDateTime;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class RecentDocVO {
+    private Long docId;
+    private String docName;
+    private Long ownerId;
+    private String ownerName;
+    private Long size;
+    private LocalDateTime lastViewTime;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/LoginRequest.java
+package com.vigza.markweave.api.dto;
+
+import lombok.Data;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Pattern;
+
+@Data
+public class LoginRequest {
+    
+    @NotBlank(message = "账号不能为空")
+    private String account;
+    
+    @NotBlank(message = "密码不能为空")
+    private String password;
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/RenameRequest.java
+package com.vigza.markweave.api.dto;
+
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class RenameRequest {
+    @NotNull
+    private Long id;
+
+    @NotBlank
+    private String newName;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/CreateFileRequest.java
+package com.vigza.markweave.api.dto;
+
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class CreateFileRequest {
+   @NotBlank(message = "文件(夹)名称不能为空")
+   private String name;
+   
+   @NotNull(message = "父级id不能为空")
+   private Long parentId;
+   
+   private Boolean isFolder = false;
+   
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/InviteRequest.java
+package com.vigza.markweave.api.dto;
+
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class InviteRequest {
+   
+    @NotNull
+    private Long docId;
+    
+    @NotNull
+    private Long targetUserId;
+
+    @NotNull
+    private Integer permission;
+
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/RegisterRequest.java
+package com.vigza.markweave.api.dto;
+
+import lombok.Data;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Size;
+
+@Data
+public class RegisterRequest {
+    
+    @NotBlank(message = "账号不能为空")
+    @Size(min = 3, max = 20, message = "账号长度必须在3-20位之间")
+    private String account;
+    
+    @NotBlank(message = "密码不能为空")
+    private String password;
+    
+    @NotBlank(message = "确认密码不能为空")
+    private String confirmPassword;
+
+    @Size(max = 20, message = "昵称长度不能超过20位")
+    private String nickname;
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/FsNodeVo.java
+package com.vigza.markweave.api.dto;
+
+import java.time.LocalDateTime;
+
+import lombok.Data;
+
+@Data
+public class FsNodeVo {
+    private Long id;
+    private String name;
+    private Integer type;
+    private String ownerName;
+    private Long size;
+    private LocalDateTime updateTime;
+    private LocalDateTime createTime;
+    private Long ptId;
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/AuthResponse.java
+package com.vigza.markweave.api.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class AuthResponse {
+    private String token;
+    private UserDTO user;
+    
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class UserDTO {
+        private Long id;
+        private String account;
+        private String nickname;
+        private String headUrl;
+        private long type;
+    }
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/api/websocket/CollaborationHandler.java
+package com.vigza.markweave.api.websocket;
+
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import lombok.extern.slf4j.Slf4j;
+
+import org.redisson.Redisson;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import com.vigza.markweave.common.util.TextOperation;
+import com.vigza.markweave.core.service.CollaborationService;
+import com.vigza.markweave.core.service.FileSystemServiceImpl;
+import com.vigza.markweave.infrastructure.service.RedisService;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Component
+// 分布式条件下，由于Ot算法计算时会并发冲突，所以我们要上Redis分布式锁
+// 分布式条件下，还需要考虑把本机的Ot计算结果通过RabbitMq广播给其他服务器上服务的用户
+// 也就说一台服务器同时承担 操作变换计算 和 消息传递 的功能
+public class CollaborationHandler extends TextWebSocketHandler {
+
+    Map<Long, Set<WebSocketSession>> map = new ConcurrentHashMap<>();
+
+    @Autowired
+    private RedisService redisService;
+
+    @Autowired
+    private FileSystemServiceImpl fsNodeService;
+
+    @Autowired
+    private CollaborationService collaborationService;
+
+    /**
+     * 解决又广播时前同一个session还没处理完的问题
+     * 
+     * @param session
+     * @param message
+     * @throws Exception
+     */
+    private void safeSend(WebSocketSession session, TextMessage message) throws Exception {
+        try {
+            synchronized (session) {
+                if (session.isOpen()) {
+                    session.sendMessage(message);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error sending message to session: {}", session.getId(), e);
+        }
+    }
+
+    @Override
+    public void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+
+        JSONObject clientMsg = JSONUtil.parseObj(message.getPayload());
+        Long docId = clientMsg.getLong("docId");
+        String token = (String) session.getAttributes().get("token");
+        session.getAttributes().put("docId", docId);
+
+        map.computeIfAbsent(docId, k -> ConcurrentHashMap.newKeySet()).add(session);
+
+        if (!collaborationService.canRead(token, docId)) {
+            safeSend(session, new TextMessage((new JSONObject()).set("error", "无权访问").toString()));
+            return;
+        }
+
+        String method = clientMsg.getStr("method");
+        // 1.处理获取全文请求
+        if ("get_new".equals(method)) {
+            JSONObject mtdMsg = new JSONObject();
+            mtdMsg.set("method", "get_new");
+            mtdMsg.set("text", redisService.getFullText(docId));
+            mtdMsg.set("version", redisService.getVersion(docId));
+            safeSend(session, new TextMessage(mtdMsg.toString()));
+            return;
+        }
+
+        // 2.处理拉取历史请求
+        if ("pull_history".equals(method)) {
+            Long clientVer = clientMsg.getLong("version");
+            Long maxVer = redisService.getVersion(docId);
+            Long size = redisService.getHistoryListSize(docId);
+            if (maxVer - clientVer > size) {
+                JSONObject msg = new JSONObject();
+                msg.set("error", "need_get_new");
+                safeSend(session, new TextMessage(msg.toString()));
+                return;
+            }
+            List<String> historyList = redisService
+                    .getHistoryRange(docId, size - (maxVer - clientVer), size - 1)
+                    .stream()
+                    .map(obj -> obj.toString()).collect(Collectors.toList());
+            historyList.forEach(str -> {
+                try {
+                    safeSend(session, new TextMessage(str));
+                } catch (Exception e) {
+                    // TODO Auto-generated catch block
+                    e.printStackTrace();
+                }
+            });
+            return;
+        }
+
+        // 3. 处理编辑操作，计算出op，然后广播
+        collaborationService.processOperation(docId, clientMsg);
+    }
+
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        Long docId = (Long) session.getAttributes().get("docId");
+        /**
+         * 风险：这是经典的 Check-then-Act 问题。
+         * 假设 A、B 两个用户同时断开连接，
+         * 两个线程可能同时判断 isEmpty() 为真，导致逻辑执行两次。
+         * 更糟糕的是，如果此时正好有 C 用户进来，他的 Session 可能会被你的 clearRoom 给误删掉。
+         */
+        synchronized (docId.toString().intern()) {
+            if (docId != null) {
+                Set<WebSocketSession> sessions = map.get(docId);
+                if (sessions != null) {
+                    sessions.remove(session);
+                    if (sessions.isEmpty()) {
+                        String finalTarget = redisService.getFullText(docId);
+                        if (finalTarget != null) {
+                            fsNodeService.updateDocContent(docId, finalTarget);
+                            redisService.clearRoom(docId);
+                        }
+                        map.remove(docId);
+                    }
+                }
+            }
+            throw new UnsupportedOperationException("Unimplemented method 'boardcastToLocal'");
+        }
+
+    }
+
+    public void boardcastToLocal(Long docId, String messagePayload, String senderClientId) {
+        Set<WebSocketSession> sessions = map.get(docId);
+        if (sessions != null) {
+            for (WebSocketSession session : sessions) {
+                try {
+                    String clientId = (String) session.getAttributes().get("clientId");
+                    // 不要发给自己
+                    if (!clientId.equals(senderClientId)) {
+                        safeSend(session, new TextMessage(messagePayload));
+                    }
+                } catch (Exception e) {
+                    log.error("广播消息到本地session失败，sessionId：{}", session.getId(), e);
+                }
+            }
+        }
+    }
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/controller/AuthController.java
+package com.vigza.markweave.api.controller;
+
+import com.vigza.markweave.api.dto.AuthResponse;
+import com.vigza.markweave.api.dto.LoginRequest;
+import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.core.service.UserService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import javax.validation.Valid;
+
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController{
+
+    @Autowired
+    private UserService userService;
+
+    @PostMapping("/register")
+    public Result<AuthResponse> register(@Valid @RequestBody RegisterRequest request){
+        return userService.register(request);
+    }
+
+    @PostMapping("/login")
+    public Result<AuthResponse> login(@Valid @RequestBody LoginRequest request){
+        return userService.login(request);
+    }
+
+    @PostMapping("/logout")
+    public Result<?> logout(@RequestHeader("Authorization") String token){
+        return userService.logout(token);
+    }
+
+
+
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/entity/FsNode.java
+package com.vigza.markweave.infrastructure.persistence.entity;
+
+import java.time.LocalDateTime;
+
+import com.baomidou.mybatisplus.annotation.TableName;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@TableName("fs_node")
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class FsNode {
+
+  private Long id;
+  private Long userId;
+  private String docOwner;
+  private Long docId;
+  private String name;
+  private Long faId;
+  private String path;
+  private Integer type;
+  private Long ptId;
+  private Boolean recycled;
+  private Long size;
+  private LocalDateTime createTime;
+  private LocalDateTime updateTime;
+  private LocalDateTime lastViewTime;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/entity/Collaboration.java
+package com.vigza.markweave.infrastructure.persistence.entity;
+
+import com.baomidou.mybatisplus.annotation.TableName;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+import org.springframework.data.annotation.AccessType;
+
+@TableName("collaboration")
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class Collaboration {
+  private String id;
+  private Long userId;
+  private Long docId;
+  private Integer permission;
+  private LocalDateTime updateTime;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/entity/User.java
+package com.vigza.markweave.infrastructure.persistence.entity;
+
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+@TableName("user")
+@Data
+public class User {
+
+  private Long id;
+  private String account;
+  private String password;
+  private String salt;
+  private String nickname;
+  private String headUrl;
+  private LocalDateTime createTime;
+  private Integer type;
+  private Long userSpaceNodeId;
+  private Long userShareSpaceNodeId;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/entity/Doc.java
+package com.vigza.markweave.infrastructure.persistence.entity;
+
+import com.baomidou.mybatisplus.annotation.TableName;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
+@TableName("doc")
+@Data
+@AllArgsConstructor
+public class Doc {
+
+  private Long id;
+  private String content;
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/mapper/FsNodeMapper.java
+package com.vigza.markweave.infrastructure.persistence.mapper;
+
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
+
+public interface FsNodeMapper extends BaseMapper<FsNode> {
+
+    @Update("update fs_node set path = replace(path,#{oldPathPrefix},#{newPathPrefix})" + 
+        "where path like concat(#{oldPathPrefix},'%')"
+    )
+    public void updateChildPaths(@Param("oldPathPrefix") String oldPathPrefix,@Param("newPathPrefix") String newPathPrefix);
+
+    @Update("update fs_node set recycled = 1 where path like concat(#{pathPrefix},'%')")
+    public void recycleChildPaths(@Param("pathPrefix") String pathPrefix);
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/mapper/UserMapper.java
+package com.vigza.markweave.infrastructure.persistence.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+
+public interface UserMapper extends BaseMapper<User> {
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/mapper/CollaborationMapper.java
+package com.vigza.markweave.infrastructure.persistence.mapper;
+
+import org.apache.ibatis.annotations.Select;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
+
+public interface CollaborationMapper extends BaseMapper<Collaboration> {
+
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/mapper/DocMapper.java
+package com.vigza.markweave.infrastructure.persistence.mapper;
+
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.vigza.markweave.infrastructure.persistence.entity.Doc;
+
+public interface DocMapper extends BaseMapper<Doc> {
+
+    @Update("update doc set content = #{content} where id = #{doc_id}")
+    void updateContent(@Param("doc_id") Long docId,@Param("content") String content);
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/mq/CollaborationMessageListener.java
+package com.vigza.markweave.infrastructure.mq;
+
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.vigza.markweave.api.websocket.CollaborationHandler;
+
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import lombok.extern.slf4j.Slf4j;
+
+@Component
+@Slf4j
+public class CollaborationMessageListener {
+    @Autowired
+    private CollaborationHandler collaborationHandler;
+
+    @RabbitListener(queues = "#{autoDeleteQueue.name}")
+    public void onMessage(String messagePayload){
+        try{
+            JSONObject msg = new JSONUtil().parseObj(messagePayload);
+            Long docId = msg.getLong("docId"); 
+            String senderClientId = msg.getStr("clientId");
+
+            collaborationHandler.boardcastToLocal(docId,messagePayload,senderClientId);
+        }catch (Exception e){
+            log.error("处理协作广播消息失败",e);
+        }
+
+    }
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/service/RedisService.java
+package com.vigza.markweave.infrastructure.service;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+import com.vigza.markweave.infrastructure.persistence.entity.Doc;
+
+@Service
+public class RedisService {
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    private Long expiration = 604800L;
+
+    private static final String BLACKLIST_PREFIX = "token:blacklist:";
+    private static final String DOC_VERSION_PREFIX = "doc:version:";
+    private static final String DOC_TEXT_PREFIX = "doc:text:";
+    private static final String DOC_HISTORY_PREFIX = "doc:history:";
+
+    public Long getAndIncrementVersion(Long docId) {
+        return redisTemplate.opsForValue().increment(DOC_VERSION_PREFIX + docId);
+    }
+
+    public Long getVersion(Long docId) {
+        return (Long) redisTemplate.opsForValue().get(DOC_VERSION_PREFIX + docId);
+    }
+
+    public String getFullText(Long docId) {
+        Object text = redisTemplate.opsForValue().get(DOC_TEXT_PREFIX + docId);
+        return text == null ? "" : text.toString();
+    }
+
+    public void setFullText(Long docId, String fullText) {
+        redisTemplate.opsForValue().set(DOC_TEXT_PREFIX + docId, fullText);
+    }
+
+    public void pushHistory(Long docId, String opJson) {
+        redisTemplate.opsForList().rightPush(DOC_HISTORY_PREFIX + docId, opJson);
+        // 限制留存操作数量
+        redisTemplate.opsForList().trim(DOC_HISTORY_PREFIX + docId, -500, -1);
+    }
+
+    public List<Object> getHistoryRange(Long docId, long l, long r) {
+        return redisTemplate.opsForList().range(DOC_HISTORY_PREFIX + docId, l, r);
+    }
+
+    public Long getHistoryListSize(Long docId) {
+        return redisTemplate.opsForList().size(DOC_HISTORY_PREFIX + docId);
+    }
+
+    public void addToBlacklist(String token) {
+        String key = BLACKLIST_PREFIX + token;
+        redisTemplate.opsForValue().set(key, "1", expiration, TimeUnit.SECONDS);
+    }
+
+    public boolean isBlacklisted(String token) {
+        String key = BLACKLIST_PREFIX + token;
+        return redisTemplate.hasKey(key);
+    }
+
+    public void clearRoom(Long docId) {
+        String verKey = DOC_VERSION_PREFIX + docId;
+        String textKey = DOC_TEXT_PREFIX + docId;
+        String histKey = DOC_HISTORY_PREFIX + docId;
+        redisTemplate.delete(Arrays.asList(verKey,textKey,histKey));
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/config/RabbitMqConfig.java
+package com.vigza.markweave.infrastructure.config;
+
+import org.springframework.amqp.core.AnonymousQueue;
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.FanoutExchange;
+import org.springframework.amqp.core.Queue;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class RabbitMqConfig {
+    public static final String EXCHANGE_NAME = "mw.collaboration.boardcast";
+
+    // 1. 定义交换机
+    @Bean
+    public FanoutExchange fanoutExchange() {
+        return new FanoutExchange(EXCHANGE_NAME);
+    }
+
+    // 2. 定义匿名、自动删除的临时队列（每台服务器实例独有）
+    @Bean
+    public Queue autoDeleteQueue() {
+        return new AnonymousQueue();
+    }
+
+    // 3. 绑定队列到交换机
+    @Bean
+    public Binding binding(FanoutExchange fanoutExchange,Queue autoDeleteQueue){
+        return BindingBuilder.bind(autoDeleteQueue).to(fanoutExchange);
+    }
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/config/WebConfig.java
+package com.vigza.markweave.infrastructure.config;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+
+    @Autowired
+    private JwtInterceptor jwtInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(jwtInterceptor)
+                .addPathPatterns("/api/**")
+                .excludePathPatterns(
+                        "/api/auth/login",
+                        "/api/auth/register",
+                        "/api/auth/logout"
+                );
+    }
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/config/RedissonConfig.java
+package com.vigza.markweave.infrastructure.config;
+
+import org.redisson.Redisson;
+import org.redisson.api.RedissonClient;
+import org.redisson.config.Config;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+
+@Configuration
+public class RedissonConfig {
+    @Value("${spring.redis.host}")
+    private String host;
+
+    @Value("${spring.redis.port}")
+    private int port;
+
+    @Value("${spring.redis.password}")
+    private String password;
+
+    @Bean
+    public RedissonClient redissonClient() {
+        Config config = new Config();
+        config.useSingleServer()
+                .setAddress("redis://" + host + ":" + port)
+                .setPassword(password);
+        return Redisson.create(config);
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/config/JwtInterceptor.java
+package com.vigza.markweave.infrastructure.config;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.common.BusinessException;
+import com.vigza.markweave.common.util.JwtUtil;
+import com.vigza.markweave.infrastructure.service.RedisService;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerInterceptor;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+@Component
+public class JwtInterceptor implements HandlerInterceptor {
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Autowired
+    private RedisService redisService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private void writeUnauthorizedResponse(HttpServletResponse response,String message) throws Exception{
+        response.setContentType("application/json;charset=UTF-8");
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+
+        Result<?> result = Result.error(401, message);
+    
+        response.getWriter().write(objectMapper.writeValueAsString(result));
+    }
+
+    @Override
+    public boolean preHandle(HttpServletRequest request ,HttpServletResponse response ,Object Handler) throws Exception{
+        String authHeader = request.getHeader(jwtUtil.getHeader());
+        if (authHeader == null || !authHeader.startsWith(jwtUtil.getPrefix())){
+            writeUnauthorizedResponse(response,"未授权");
+            return false;
+        }
+        String token = authHeader.substring(jwtUtil.getPrefix().length()).trim();
+        if(!jwtUtil.validateToken(token)){
+            writeUnauthorizedResponse(response,"token无效");
+            return false;
+        }
+        if(redisService.isBlacklisted(token)){
+            writeUnauthorizedResponse(response,"token已过期");
+            return false;
+        }
+        return true;
+    }
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/config/RedisConfig.java
+package com.vigza.markweave.infrastructure.config;
+
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+
+@Configuration
+public class RedisConfig {
+
+    @Value("${spring.redis.host}")
+    private String host;
+
+    @Value("${spring.redis.port}")
+    private int port;
+
+    @Value("${spring.redis.password}")
+    private String password;
+
+    @Value("${spring.redis.database}")
+    private int database;
+
+
+    @Bean
+    public RedisConnectionFactory redisConnectionFactory(){
+        RedisStandaloneConfiguration config = new RedisStandaloneConfiguration();
+        config.setHostName(host);
+        config.setPort(port);
+        config.setPassword(password);
+        config.setDatabase(database);
+        return new LettuceConnectionFactory(config);
+    }
+
+    @Bean
+    public RedisTemplate<String,Object> redisTemplate(RedisConnectionFactory connectionFactory){
+        RedisTemplate<String,Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.afterPropertiesSet();
+        return template;
+    }
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/config/WebSocketInterceptor.java
+package com.vigza.markweave.infrastructure.config;
+
+import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.AutoConfigureOrder;
+import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.http.server.ServerHttpResponse;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.stereotype.Component;
+import org.springframework.web.socket.WebSocketHandler;
+import org.springframework.web.socket.server.HandshakeInterceptor;
+import org.springframework.web.socket.server.support.HandshakeInterceptorChain;
+
+import com.vigza.markweave.common.util.JwtUtil;
+import com.vigza.markweave.core.service.CollaborationService;
+import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
+
+@Component
+public class WebSocketInterceptor implements HandshakeInterceptor {
+
+    @Autowired
+    private CollaborationService collaborationService;
+
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    @Override
+    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHander,
+            Map<String, Object> attributes) throws Exception {
+        if (request instanceof ServletServerHttpRequest) {
+            ServletServerHttpRequest servletRequest = (ServletServerHttpRequest) request;
+            HttpServletRequest req = servletRequest.getServletRequest();
+
+            String token = req.getHeader("Authorization");
+            String clientId = req.getHeader("clientId");
+            if (jwtUtil.validateToken(token)) {
+                Long userId = jwtUtil.getUserFromToken(token).getId();
+                if (userId == null) {
+                    return false;
+                }
+                attributes.put("userId", userId);
+                attributes.put("token", token);
+                attributes.put("clientId", clientId);
+            } else
+                return false;
+
+        }
+
+        return true;
+    }
+
+    @Override
+    public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
+            WebSocketHandler wsHandler, Exception exception) {
+    }
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/config/WebSocketConfig.java
+package com.vigza.markweave.infrastructure.config;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.socket.config.annotation.EnableWebSocket;
+import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
+import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
+
+import com.vigza.markweave.api.websocket.CollaborationHandler;
+
+@Configuration
+@EnableWebSocket
+public class WebSocketConfig implements WebSocketConfigurer {
+
+    @Autowired
+    private CollaborationHandler collaborationHandler;
+
+    @Autowired
+    private WebSocketInterceptor webSocketInterceptor;
+
+    @Override
+    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        registry.addHandler(collaborationHandler, "/ws/collaboration")
+            .setAllowedOrigins("*")
+            .addInterceptors(webSocketInterceptor);
+    }
+
+}
+
+---

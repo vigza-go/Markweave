@@ -35,6 +35,7 @@ public class WebSocketInterceptor implements HandshakeInterceptor {
             HttpServletRequest req = servletRequest.getServletRequest();
 
             String token = req.getHeader("Authorization");
+            String clientId = req.getHeader("clientId");
             if (jwtUtil.validateToken(token)) {
                 Long userId = jwtUtil.getUserFromToken(token).getId();
                 if (userId == null) {
@@ -42,6 +43,7 @@ public class WebSocketInterceptor implements HandshakeInterceptor {
                 }
                 attributes.put("userId", userId);
                 attributes.put("token", token);
+                attributes.put("clientId", clientId);
             } else
                 return false;
 

@@ -7,6 +7,74 @@
 **项目描述**： 
 - 该项目是一款实时 Markdown 协同编辑平台，支持多人在线同时编辑、AI 辅助创作及多格式转换。为解决协作过程中的内容冲突，自研了基于 OT算法的冲突协同模块，实现了高可用、低延迟的办公协作环境。
 
+**todolist:**
+- [x] 登陆jwt访问控制
+- [x] 文件系统云盘服务
+- [x] 文件权限管理服务
+- [x] 后端/前端ot算法
+- [ ] 分布式系统设计，使用Redis作为分布式锁、缓存各个文档的版本号、操作列表
+- [ ] 分布式系统设计，使用RabbitMQ 发布订阅、异步落库、延时重试
+- [ ] 需考虑使用RabbitMq的数据一致性
+- [ ] 需要处理前端发来操作消息的幂等性
+- [ ] 考虑前后端消息丢失的问题 
+- [ ] 集成日志收集工具
+- [ ] ai生成服务
+- [ ] 拆分成微服务
+- [ ] 前端开发
+- [ ] 前端undo/redo 栈
+- [ ] 解决在数据库里存文档的问题
+- [ ] handler的sessionMap内存溢出风险 (OOM)
+- [ ] afterConnectionClosed的分布式化
+- [ ] 重试机制的指数退避机制
+
+### “为什么不用 RocketMQ？” 
+“在 Markweave 的选型中，优先考虑的是实时交互的低延迟。RabbitMQ 基于 Erlang 开发，在消息转发的时延上具有微秒级的优势，非常适合 OT 算法的操作流同步。此外，RabbitMQ 灵活的 Exchange 模型能通过 Fanout 模式轻松实现 WebSocket 集群的广播，而 RocketMQ 的设计初衷更多是解决海量吞吐和事务一致性，对于这种实时办公场景，RabbitMQ 的性价比和响应速度更高。”
+
+
+
+
+***分布式 OT 协作 UML 时序图***
+```mermaid
+sequenceDiagram
+    participant UserA as 用户 A (Client)
+    participant S1 as Server 1 (WebSocket)
+    participant Redis as Redis (Lock & Data)
+    participant MQ as RabbitMQ (Fanout Exchange)
+    participant S2 as Server 2 (WebSocket)
+    participant UserB as 用户 B (Client)
+
+    Note over UserA, UserB: 实时协作开始
+    UserA->>S1: 发送编辑操作 (op, clientVer)
+    
+    S1->>Redis: 尝试获取分布式锁 (docId)
+    alt 获取锁成功
+        Redis-->>S1: Lock Acquired (Watchdog 启动)
+        S1->>Redis: 获取当前版本 & 历史 Ops
+        S1->>S1: 执行 OT Transform (计算新 op')
+        S1->>Redis: 更新 FullText & Version++ & Push History
+        S1->>Redis: 释放锁
+        
+        S1->>MQ: 发送广播消息 (docId, finalOp, newVer)
+    else 获取锁失败 (冲突)
+        S1->>MQ: 转发至重试队列 (Retry Queue)
+        S1-->>UserA: (可选) 发送 Ack/等待通知
+    end
+
+    Note over MQ: Fanout 广播给所有服务器实例
+
+    MQ-->>S1: 收到广播消息
+    MQ-->>S2: 收到广播消息
+
+    S1->>S1: 检查本地是否有 docId 的 Session
+    S1->>UserA: 推送最终结果 (或 ACK)
+
+    S2->>S2: 检查本地是否有 docId 的 Session
+    S2->>UserB: 推送最终结果 (newOp)
+    
+    Note over UserB: 编辑同步完成
+```
+
+
 ## 为什么选择markdown？
 - markdown 语法简单，轻松上手，无需繁杂点击，即可实现富文本特性
 - markdown 规则简洁 可以轻松转化为其他格式的文件 html docx pdf ...

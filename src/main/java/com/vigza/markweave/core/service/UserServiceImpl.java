@@ -1,4 +1,4 @@
-package com.vigza.markweave.core.service.serviceImpl;
+package com.vigza.markweave.core.service;
 
 import java.time.LocalDateTime;
 
@@ -12,7 +12,6 @@ import com.vigza.markweave.api.dto.RegisterRequest;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
-import com.vigza.markweave.core.service.UserService;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.UserMapper;
 import com.vigza.markweave.infrastructure.service.RedisService;

@@ -1,4 +1,4 @@
-package com.vigza.markweave.core.service.serviceImpl;
+package com.vigza.markweave.core.service;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -25,8 +25,6 @@ import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
-import com.vigza.markweave.core.service.CollaborationService;
-import com.vigza.markweave.core.service.FileSystemService;
 import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
 import com.vigza.markweave.infrastructure.persistence.entity.Doc;
 import com.vigza.markweave.infrastructure.persistence.entity.FsNode;

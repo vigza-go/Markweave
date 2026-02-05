@@ -5,6 +5,8 @@ import java.util.List;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 
+import cn.hutool.json.JSONObject;
+
 public interface CollaborationService {
 
 
@@ -23,4 +25,8 @@ public interface CollaborationService {
     Result<String> createInvitation(String token, Long docId, Integer permission,Integer expTime);
 
     Result<?> acceptInvitation(String userToken, String invToken);
+
+
+    void processOperation(Long docId,JSONObject clientMsg);
+
 }
