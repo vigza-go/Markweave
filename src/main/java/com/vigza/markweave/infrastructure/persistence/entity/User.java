@@ -20,5 +20,6 @@ public class User {
   private String headUrl;
   private LocalDateTime createTime;
   private Integer type;
-
+  private Long userSpaceNodeId;
+  private Long userShareSpaceNodeId;
 }

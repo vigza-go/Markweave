@@ -3,11 +3,14 @@ package com.vigza.markweave.common.util;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.jwt.JWT;
+import cn.hutool.jwt.JWTPayload;
 import cn.hutool.jwt.JWTUtil;
 import lombok.Data;
 
@@ -25,8 +28,19 @@ public class JwtUtil {
     public String generateToken(User user){
         Map<String,Object> payload = new HashMap<>();
         payload.put("user",user);
-        payload.put("iat",System.currentTimeMillis());
-        payload.put("exp",System.currentTimeMillis() + expiration);
+        long now  = System.currentTimeMillis() / 1000;
+        payload.put(JWTPayload.ISSUED_AT,now);
+        payload.put(JWTPayload.EXPIRES_AT,now + expiration );
+        return JWTUtil.createToken(payload,secret.getBytes());
+    }
+
+    public String generateInvitaionToken(Long docId,Integer permission,Integer expTime){
+        Map<String,Object> payload = new HashMap<>();
+        payload.put("docId",docId);
+        payload.put("permission",permission);
+        long now = System.currentTimeMillis() / 1000;
+        payload.put(JWTPayload.ISSUED_AT,now);
+        payload.put(JWTPayload.EXPIRES_AT,now + expTime);
         return JWTUtil.createToken(payload,secret.getBytes());
     }
 
@@ -41,32 +55,19 @@ public class JwtUtil {
 
     public User getUserFromToken(String token){
         JWT jwt = JWTUtil.parseToken(token);
-        return (User) jwt.getPayload("user");
+        Object userObject =  jwt.getPayload("user");
+        return BeanUtil.toBean(userObject,User.class); 
     }
 
-    public String generateInvitationToken(Map<String, Object> payload) {
-        payload.put("iat", System.currentTimeMillis());
-        return JWTUtil.createToken(payload, secret.getBytes());
-    }
+    public Long getDocIdFromInvToken(String invToken){
+        JWT jwt = JWTUtil.parseToken(invToken);
+        Object docIdObject =  jwt.getPayload("docId");
+        return BeanUtil.toBean(docIdObject, Long.class);
+    }    
 
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> getInvitationPayload(String token) {
-        try {
-            JWT jwt = JWTUtil.parseToken(token);
-            if (!jwt.setKey(secret.getBytes()).verify()) {
-                return null;
-            }
-            if (jwt.validate(0)) {
-                return null;
-            }
-            Object type = jwt.getPayload("type");
-            if (!"invitation".equals(type)) {
-                return null;
-            }
-            return (Map<String, Object>) jwt.getPayloads();
-        } catch (Exception e) {
-            return null;
-        }
+    public Integer getPermissionFromInvToken(String invToken){
+        JWT jwt = JWTUtil.parseToken(invToken);
+        Object pObject = jwt.getPayload("permission");
+        return BeanUtil.toBean(pObject,Integer.class);
     }
-
 }

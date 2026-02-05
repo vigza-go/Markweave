@@ -16,7 +16,6 @@ public class RecentDocVO {
     private String docName;
     private Long ownerId;
     private String ownerName;
-    private Integer role;
     private Long size;
     private LocalDateTime lastViewTime;
 }

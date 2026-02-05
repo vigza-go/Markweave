@@ -36,11 +36,12 @@ public class WebSocketInterceptor implements HandshakeInterceptor {
 
             String token = req.getHeader("Authorization");
             if (jwtUtil.validateToken(token)) {
-                Long userId = JwtUtil.getUserFromToken(token).getId();
+                Long userId = jwtUtil.getUserFromToken(token).getId();
                 if (userId == null) {
                     return false;
                 }
                 attributes.put("userId", userId);
+                attributes.put("token", token);
             } else
                 return false;
 

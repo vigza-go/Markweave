@@ -18,7 +18,7 @@ public class FsNode {
 
   private Long id;
   private Long userId;
-  private String userName;
+  private String docOwner;
   private Long docId;
   private String name;
   private Long faId;
@@ -29,5 +29,5 @@ public class FsNode {
   private Long size;
   private LocalDateTime createTime;
   private LocalDateTime updateTime;
-
+  private LocalDateTime lastViewTime;
 }

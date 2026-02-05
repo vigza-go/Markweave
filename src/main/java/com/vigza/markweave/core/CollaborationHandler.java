@@ -2,7 +2,6 @@ package com.vigza.markweave.core;
 
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import io.netty.util.internal.ConcurrentSet;
 import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,18 +14,12 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import com.vigza.markweave.common.util.TextOperation;
 import com.vigza.markweave.core.service.CollaborationService;
 import com.vigza.markweave.core.service.serviceImpl.FileSystemServiceImpl;
-import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
 import com.vigza.markweave.infrastructure.service.RedisService;
 
-import java.nio.file.FileSystem;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Vector;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -66,9 +59,9 @@ public class CollaborationHandler extends TextWebSocketHandler {
     public void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         JSONObject clientMsg = JSONUtil.parseObj(message.getPayload());
         Long docId = clientMsg.getLong("docId");
-        Long userId =(Long)session.getAttributes().get("userId");
-        session.getAttributes().put("docId",docId);
-        if (!collaborationService.canRead(userId, docId)) {
+        String token = (String) session.getAttributes().get("token");
+        session.getAttributes().put("docId", docId);
+        if (!collaborationService.canRead(token, docId)) {
             safeSend(session, new TextMessage((new JSONObject()).set("error", "无权访问").toString()));
             return;
         }
@@ -110,7 +103,6 @@ public class CollaborationHandler extends TextWebSocketHandler {
                 });
                 return;
             }
-
             // 3. 处理编辑操作 (核心同步块)
             // 线程 A 收到消息，执行到 currentVersion.incrementAndGet()，版本号从 141 变成 142。
             // 就在此时（还没执行 history.add），线程 B 收到另一条消息。
@@ -120,6 +112,10 @@ public class CollaborationHandler extends TextWebSocketHandler {
             // 但因为线程 A 的 history.add 还没跑完，history 列表的最大索引还是 140。
             // 砰！ ArrayIndexOutOfBoundsException 抛出。
             // 待优化，考虑用消息队列来避免锁的同步
+            if (!collaborationService.canRead(token, docId)) {
+                safeSend(session, new TextMessage((new JSONObject()).set("error", "无权编辑").toString()));
+                return;
+            }
             Long clientVer = clientMsg.getLong("version");
             TextOperation clientOp = null;
             Long currentVersion = redisService.getVersion(docId);

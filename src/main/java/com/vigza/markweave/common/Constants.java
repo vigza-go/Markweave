@@ -27,7 +27,7 @@ public class Constants {
     }
   }
 
-  public static class CollaborationRole {
+  public static class CollaborationPermission {
     public static final int CREATOR = 1;
     public static final int READ_WRITE = 2;
     public static final int READ_ONLY = 3;

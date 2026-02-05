@@ -13,6 +13,6 @@ public interface FsNodeMapper extends BaseMapper<FsNode> {
     )
     public void updateChildPaths(@Param("oldPathPrefix") String oldPathPrefix,@Param("newPathPrefix") String newPathPrefix);
 
-    @Update("update fs_node set is_recycled = 1 where path like concat(#{pathPrefix},'%')")
+    @Update("update fs_node set recycled = 1 where path like concat(#{pathPrefix},'%')")
     public void recycleChildPaths(@Param("pathPrefix") String pathPrefix);
 }

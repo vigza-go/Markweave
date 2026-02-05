@@ -69,6 +69,8 @@ public class UserServiceImpl implements UserService {
         user.setCreateTime(LocalDateTime.now());
         user.setType(0);
         user.setId(IdGenerator.nextId());
+        user.setUserSpaceNodeId(IdGenerator.nextId());
+        user.setUserShareSpaceNodeId(IdGenerator.nextId());
         userMapper.insert(user);
         AuthResponse authResponse = generateAuthResponse(user);
         fileSystemService.initUserNodes(authResponse.getToken());

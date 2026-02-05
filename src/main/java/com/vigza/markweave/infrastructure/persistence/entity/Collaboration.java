@@ -17,11 +17,9 @@ import org.springframework.data.annotation.AccessType;
 @AllArgsConstructor
 @NoArgsConstructor
 public class Collaboration {
-  private Long id;
+  private String id;
   private Long userId;
   private Long docId;
-  private Integer role;
-  private LocalDateTime createTime;
-  private LocalDateTime lastViewTime;
-
+  private Integer permission;
+  private LocalDateTime updateTime;
 }

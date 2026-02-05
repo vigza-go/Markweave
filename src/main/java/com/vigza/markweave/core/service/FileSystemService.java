@@ -1,40 +1,18 @@
 
-package com.vigza.markweave.core.service.serviceImpl;
+package com.vigza.markweave.core.service;
 
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-
-import javax.annotation.PostConstruct;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.vigza.markweave.api.dto.FsNodeVo;
 import com.vigza.markweave.api.dto.RecentDocVO;
-import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
-import com.vigza.markweave.common.util.IdGenerator;
-import com.vigza.markweave.common.util.JwtUtil;
-import com.vigza.markweave.core.service.CollaborationService;
-import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
-import com.vigza.markweave.infrastructure.persistence.entity.Doc;
 import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
-import com.vigza.markweave.infrastructure.persistence.entity.User;
-import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
-import com.vigza.markweave.infrastructure.persistence.mapper.DocMapper;
-import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
 
 public interface FileSystemService {
 
-    Result<FsNode> createNode(String fileName, Long faId, Integer fileType, String token);
+    Result<FsNode> createNode(String fileName,Long nodeId, Long faId, Integer fileType, String token);
+
+    // 应当由CollaborationService 的 acceptInvation 或者 前端创建快捷方式调用
+    Result<FsNode> createPtrNode(Long faId,Long srcNodeId,String token);
 
     Result<?> rename(Long nodeId, String newName, String token);
 
@@ -44,7 +22,11 @@ public interface FileSystemService {
 
     Result<List<FsNodeVo>> listFiles(Long faId, String token);
 
+    // 在 websocket 中调用
     void updateDocContent(Long docId, String content);
+
+    // 应当在用户打开文档时，关闭文章后调用
+    Result<?> updateViewTime(Long nodeId,String token);
 
     Result<List<RecentDocVO>> selectRecentDocList(String token);
 
