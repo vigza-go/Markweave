@@ -55,6 +55,7 @@ public class FileSystemServiceImpl implements FileSystemService {
             root = new FsNode();
             root.setId(0L);
             root.setUserId(-1L);
+            root.setFaId(-1L);
             root.setPath("/");
             root.setType(Constants.FsNodeType.FOLDER);
             root.setRecycled(false);
