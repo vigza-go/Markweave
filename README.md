@@ -16,14 +16,17 @@
 - [x] afterConnectionClosed的分布式化
 - [x] 分布式系统设计，使用RabbitMQ 传递消息、异步落库、延时重试
 - [x] 重试机制下的TTL指数退避延时队列
-- [ ] ai生成服务
+- [x] ai生成服务
+- [ ] 让ai的输出内容进行差量修正，而非全量修正
+- [ ] ai接口限流、ai接口计费
 - [ ] 解决在数据库里存文档的问题
 - [ ] 前端开发
 - [ ] 前端undo/redo 栈
 - [ ] handler的sessionMap内存溢出风险 (OOM)
-- [ ] 集成日志收集工具
+- [ ] 开发管理员后台
 - [ ] 性能监控：集成 Prometheus + Grafana
-- [ ] ai接口限流
+- [ ] 集成日志收集工具
+
 **todolist**
 - [ ] 需考虑使用RabbitMq的数据一致性
 - [ ] 考虑前后端消息丢失的问题 

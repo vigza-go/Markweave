@@ -1,9 +1,9 @@
 FILE: ./src/main/java/com/vigza/markweave/core/service/UserService.java
 package com.vigza.markweave.core.service;
 
-import com.vigza.markweave.api.dto.AuthResponse;
-import com.vigza.markweave.api.dto.LoginRequest;
-import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.api.dto.Auth.AuthResponse;
+import com.vigza.markweave.api.dto.Auth.LoginRequest;
+import com.vigza.markweave.api.dto.Auth.RegisterRequest;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 
@@ -39,8 +39,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
-import com.vigza.markweave.api.dto.FsNodeVo;
-import com.vigza.markweave.api.dto.RecentDocVO;
+import com.vigza.markweave.api.dto.FileSystem.FsNodeVo;
+import com.vigza.markweave.api.dto.FileSystem.RecentDocVO;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
@@ -83,6 +83,7 @@ public class FileSystemServiceImpl implements FileSystemService {
     }
 
     @Transactional
+    @Override
     public void initUserNodes(String token) {
         User user = jwtUtil.getUserFromToken(token);
         FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(),0L, Constants.FsNodeType.FOLDER, token).getData();
@@ -116,7 +117,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         FsNode node = FsNode.builder()
                 .id(nodeId)
                 .userId(user.getId())
-                .docOwner(user.getNickname())
+                .docOwner(user.getNickName())
                 .name(fileName)
                 .faId(faId)
                 .path(faNode.getPath() + "/" + fileName)
@@ -384,6 +385,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.vigza.markweave.api.dto.Collaboration.CollaboratorVo;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
@@ -495,7 +497,7 @@ public class CollaborationServiceImpl implements CollaborationService {
     }
 
     @Override
-    public Result<List<User>> selectCollaboratorsByDocId(String token, Long docId) {
+    public Result<List<CollaboratorVo>> selectCollaboratorsByDocId(String token, Long docId) {
         User user = jwtUtil.getUserFromToken(token);
         if (user == null) {
             return Result.error(401, "未登录");
@@ -509,23 +511,32 @@ public class CollaborationServiceImpl implements CollaborationService {
         queryWrapper.eq(Collaboration::getDocId, docId);
         List<Collaboration> collaborations = collaborationMapper.selectList(queryWrapper);
 
+        Map<Long,Integer> userPermissionMap = new HashMap<>();
         List<Long> userIds = collaborations.stream()
-                .map(Collaboration::getUserId)
+                .map(c ->{
+                    userPermissionMap.put(c.getUserId(),c.getPermission());
+                    return c.getUserId();
+                })
                 .collect(Collectors.toList());
 
         if (userIds.isEmpty()) {
             return Result.success(java.util.Collections.emptyList());
         }
 
-        List<User> users = userMapper.selectList(new LambdaQueryWrapper<User>()
-                .in(User::getId, userIds));
+        List<CollaboratorVo> collaborators = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .in(User::getId, userIds))
+                .stream()
+                .map(u ->{
+                    CollaboratorVo vo = new CollaboratorVo();
+                    vo.setUserId(u.getId());
+                    vo.setNickName(u.getNickName());
+                    vo.setHeadUrl(u.getHeadUrl());
+                    vo.setPermission(userPermissionMap.get(u.getId()));
+                    return vo;
+                })
+                .collect(Collectors.toList());
 
-        users.forEach(u -> {
-            u.setPassword(null);
-            u.setSalt(null);
-        });
-
-        return Result.success(users);
+        return Result.success(collaborators);
     }
 
     @Override
@@ -650,6 +661,7 @@ package com.vigza.markweave.core.service;
 
 import java.util.List;
 
+import com.vigza.markweave.api.dto.Collaboration.CollaboratorVo;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 
@@ -668,7 +680,7 @@ public interface CollaborationService {
     
     Result<?> updatePermission(String token, Long targetUserId,Long docId,Integer permission);
     
-    Result<List<User>> selectCollaboratorsByDocId(String token, Long docId);
+    Result<List<CollaboratorVo>> selectCollaboratorsByDocId(String token, Long docId);
 
     Result<String> createInvitation(String token, Long docId, Integer permission,Integer expTime);
 
@@ -676,6 +688,83 @@ public interface CollaborationService {
 
 
     void processOperation(Long docId,JSONObject clientMsg);
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/core/service/MarkdownAiServiceImpl.java
+package com.vigza.markweave.core.service;
+
+import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+import com.vigza.markweave.infrastructure.service.RedisService;
+
+import io.github.lnyocly.ai4j.platform.openai.chat.entity.ChatCompletion;
+import io.github.lnyocly.ai4j.platform.openai.chat.entity.ChatCompletionResponse;
+import io.github.lnyocly.ai4j.platform.openai.chat.entity.ChatMessage;
+import io.github.lnyocly.ai4j.service.IChatService;
+import io.github.lnyocly.ai4j.service.PlatformType;
+import io.github.lnyocly.ai4j.service.factor.AiService;
+
+@Service
+public class MarkdownAiServiceImpl implements MarkdownAiService {
+
+    @Autowired
+    private AiService aiService;
+
+    @Autowired
+    private RedisService redisService;
+
+    @Autowired
+    private CollaborationService collaborationService;
+
+    @Override
+    public Result<String> smartFormat(String token, Long docId) {
+
+        if (!collaborationService.canWrite(token, docId)) {
+            return Result.error(403, "无权限");
+        }
+
+        String content = redisService.getFullText(docId);
+
+        // 1. 定义 Prompt 模板，明确要求美化 Markdown 排版并修正语法
+        String template = "你是一个专业的 Markdown 排版专家。请对以下 Markdown 内容进行美化和修正：\n" +
+                "1. 修正语法错误和错别字。\n" +
+                "2. 优化标题层级和段落间距。\n" +
+                "3. 确保代码块、链接、图片格式正确。\n" +
+                "4. 请仅返回修正后的 Markdown 内容，不要包含任何解释性文字。\n" +
+                "\n" +
+                "待处理内容：\n" +
+                content;
+
+        // 获取OLLAMA的聊天服务
+        IChatService chatService = aiService.getChatService(PlatformType.OLLAMA);
+
+        // 创建请求参数
+        ChatCompletion chatCompletion = ChatCompletion.builder()
+                .model("deepseek-r1:32b")
+                .message(ChatMessage.withUser(template))
+                .build();
+
+        // 2. 调用 AI 模型
+        ChatCompletionResponse chatCompletionResponse = null;
+        try {
+            chatCompletionResponse = chatService.chatCompletion(chatCompletion);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        // 获取聊天内容和token消耗
+        String aiResult = chatCompletionResponse.getChoices().get(0).getMessage().getContent();
+        long totalTokens = chatCompletionResponse.getUsage().getTotalTokens();
+        System.out.println("总token消耗: " + totalTokens);
+        
+        return Result.success(aiResult);
+    }
 
 }
 
@@ -689,9 +778,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.vigza.markweave.api.dto.AuthResponse;
-import com.vigza.markweave.api.dto.LoginRequest;
-import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.api.dto.Auth.AuthResponse;
+import com.vigza.markweave.api.dto.Auth.LoginRequest;
+import com.vigza.markweave.api.dto.Auth.RegisterRequest;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
@@ -726,7 +815,7 @@ public class UserServiceImpl implements UserService {
         AuthResponse.UserDTO userDTO = AuthResponse.UserDTO.builder()
                 .id(user.getId())
                 .account(user.getAccount())
-                .nickname(user.getNickname())
+                .nickname(user.getNickName())
                 .headUrl(user.getHeadUrl())
                 .type(user.getType())
                 .build();
@@ -748,7 +837,7 @@ public class UserServiceImpl implements UserService {
         String salt = BCrypt.gensalt();
         user.setPassword(BCrypt.hashpw(request.getPassword(), salt ));
         user.setSalt(salt);
-        user.setNickname(request.getNickname());
+        user.setNickName(request.getNickname());
         user.setCreateTime(LocalDateTime.now());
         user.setType(Constants.UserType.NORMAL);
         user.setId(IdGenerator.nextId());
@@ -785,13 +874,24 @@ public class UserServiceImpl implements UserService {
 }
 
 ---
+FILE: ./src/main/java/com/vigza/markweave/core/service/MarkdownAiService.java
+package com.vigza.markweave.core.service;
+
+import com.vigza.markweave.common.Result;
+
+public interface MarkdownAiService {
+    Result<String> smartFormat(String token,Long docId);
+}
+
+---
 FILE: ./src/main/java/com/vigza/markweave/core/service/FileSystemService.java
 
 package com.vigza.markweave.core.service;
 
 import java.util.List;
-import com.vigza.markweave.api.dto.FsNodeVo;
-import com.vigza.markweave.api.dto.RecentDocVO;
+
+import com.vigza.markweave.api.dto.FileSystem.FsNodeVo;
+import com.vigza.markweave.api.dto.FileSystem.RecentDocVO;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
 
@@ -817,6 +917,8 @@ public interface FileSystemService {
     Result<?> updateViewTime(Long nodeId,String token);
 
     Result<List<RecentDocVO>> selectRecentDocList(String token);
+
+    void initUserNodes(String token);
 
 }
 
@@ -866,6 +968,11 @@ public class Constants {
       if (value < 1 || value > 3)
         return false;
       return true;
+    }
+    public static boolean isCommonType(int value) {
+      if (value == FILE || value == FOLDER)
+        return true;
+      return false;
     }
   }
 
@@ -1372,8 +1479,63 @@ public class BusinessException extends RuntimeException {
 }
 
 ---
-FILE: ./src/main/java/com/vigza/markweave/api/dto/MoveRequest.java
-package com.vigza.markweave.api.dto;
+FILE: ./src/main/java/com/vigza/markweave/api/dto/Collaboration/CollaboratorVo.java
+package com.vigza.markweave.api.dto.Collaboration;
+
+import lombok.Data;
+
+@Data
+public class CollaboratorVo {
+   private Long userId;
+   private String nickName;
+   private String headUrl;
+   private Integer permission; 
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/Collaboration/PermissionRequest.java
+package com.vigza.markweave.api.dto.Collaboration;
+
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class PermissionRequest {
+    @NotNull
+    private Long docId;
+    @NotNull
+    private Long targetUserId;
+    @NotNull
+    private Integer permission;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/Collaboration/InviteRequest.java
+package com.vigza.markweave.api.dto.Collaboration;
+
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class InviteRequest {
+   
+    @NotNull
+    private Long docId;
+    
+    @NotNull
+    private Integer permission;
+
+
+    @NotNull
+    private Integer expTime;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/FileSystem/MoveRequest.java
+package com.vigza.markweave.api.dto.FileSystem;
 
 import javax.validation.constraints.NotNull;
 
@@ -1382,15 +1544,15 @@ import lombok.Data;
 @Data
 public class MoveRequest {
     @NotNull
-    private Long id;
+    private Long nodeId;
 
     @NotNull
     private Long targetFolderId;
 }
 
 ---
-FILE: ./src/main/java/com/vigza/markweave/api/dto/RecentDocVO.java
-package com.vigza.markweave.api.dto;
+FILE: ./src/main/java/com/vigza/markweave/api/dto/FileSystem/RecentDocVO.java
+package com.vigza.markweave.api.dto.FileSystem;
 
 import java.time.LocalDateTime;
 
@@ -1413,8 +1575,84 @@ public class RecentDocVO {
 }
 
 ---
-FILE: ./src/main/java/com/vigza/markweave/api/dto/LoginRequest.java
-package com.vigza.markweave.api.dto;
+FILE: ./src/main/java/com/vigza/markweave/api/dto/FileSystem/RenameRequest.java
+package com.vigza.markweave.api.dto.FileSystem;
+
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class RenameRequest {
+    @NotNull
+    private Long nodeId;
+
+    @NotBlank
+    private String newName;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/FileSystem/CreateFileRequest.java
+package com.vigza.markweave.api.dto.FileSystem;
+
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class CreateFileRequest {
+   @NotBlank(message = "文件(夹)名称不能为空")
+   private String fileName;
+   
+   @NotNull(message = "父级id不能为空")
+   private Long faId;
+   
+   @NotNull(message = "文件类型不能为空")
+   private Integer fileType;
+   
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/FileSystem/CreateShortcutRequest.java
+package com.vigza.markweave.api.dto.FileSystem;
+
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.NotNull;
+
+import lombok.Data;
+
+@Data
+public class CreateShortcutRequest {
+    @NotNull
+    private Long faId;
+    @NotNull
+    private Long srcNodeId;
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/FileSystem/FsNodeVo.java
+package com.vigza.markweave.api.dto.FileSystem;
+
+import java.time.LocalDateTime;
+
+import lombok.Data;
+
+@Data
+public class FsNodeVo {
+    private Long id;
+    private String name;
+    private Integer type;
+    private String ownerName;
+    private Long size;
+    private LocalDateTime updateTime;
+    private LocalDateTime createTime;
+    private Long ptId;
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/api/dto/Auth/LoginRequest.java
+package com.vigza.markweave.api.dto.Auth;
 
 import lombok.Data;
 import javax.validation.constraints.NotBlank;
@@ -1430,70 +1668,8 @@ public class LoginRequest {
     private String password;
 }
 ---
-FILE: ./src/main/java/com/vigza/markweave/api/dto/RenameRequest.java
-package com.vigza.markweave.api.dto;
-
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
-
-import lombok.Data;
-
-@Data
-public class RenameRequest {
-    @NotNull
-    private Long id;
-
-    @NotBlank
-    private String newName;
-}
-
----
-FILE: ./src/main/java/com/vigza/markweave/api/dto/CreateFileRequest.java
-package com.vigza.markweave.api.dto;
-
-import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
-
-import lombok.Data;
-
-@Data
-public class CreateFileRequest {
-   @NotBlank(message = "文件(夹)名称不能为空")
-   private String name;
-   
-   @NotNull(message = "父级id不能为空")
-   private Long parentId;
-   
-   private Boolean isFolder = false;
-   
-}
-
----
-FILE: ./src/main/java/com/vigza/markweave/api/dto/InviteRequest.java
-package com.vigza.markweave.api.dto;
-
-import javax.validation.constraints.NotNull;
-
-import lombok.Data;
-
-@Data
-public class InviteRequest {
-   
-    @NotNull
-    private Long docId;
-    
-    @NotNull
-    private Long targetUserId;
-
-    @NotNull
-    private Integer permission;
-
-
-}
-
----
-FILE: ./src/main/java/com/vigza/markweave/api/dto/RegisterRequest.java
-package com.vigza.markweave.api.dto;
+FILE: ./src/main/java/com/vigza/markweave/api/dto/Auth/RegisterRequest.java
+package com.vigza.markweave.api.dto.Auth;
 
 import lombok.Data;
 import javax.validation.constraints.NotBlank;
@@ -1518,27 +1694,8 @@ public class RegisterRequest {
 }
 
 ---
-FILE: ./src/main/java/com/vigza/markweave/api/dto/FsNodeVo.java
-package com.vigza.markweave.api.dto;
-
-import java.time.LocalDateTime;
-
-import lombok.Data;
-
-@Data
-public class FsNodeVo {
-    private Long id;
-    private String name;
-    private Integer type;
-    private String ownerName;
-    private Long size;
-    private LocalDateTime updateTime;
-    private LocalDateTime createTime;
-    private Long ptId;
-}
----
-FILE: ./src/main/java/com/vigza/markweave/api/dto/AuthResponse.java
-package com.vigza.markweave.api.dto;
+FILE: ./src/main/java/com/vigza/markweave/api/dto/Auth/AuthResponse.java
+package com.vigza.markweave.api.dto.Auth;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -1734,12 +1891,251 @@ public class CollaborationHandler extends TextWebSocketHandler {
 }
 
 ---
+FILE: ./src/main/java/com/vigza/markweave/api/controller/CollaborationController.java
+package com.vigza.markweave.api.controller;
+
+import java.security.Permission;
+import java.util.List;
+
+import javax.validation.Valid;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.vigza.markweave.api.dto.Collaboration.CollaboratorVo;
+import com.vigza.markweave.api.dto.Collaboration.InviteRequest;
+import com.vigza.markweave.api.dto.Collaboration.PermissionRequest;
+import com.vigza.markweave.common.Constants;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.common.util.JwtUtil;
+import com.vigza.markweave.core.service.CollaborationService;
+import com.vigza.markweave.infrastructure.persistence.entity.User;
+
+@RestController
+@RequestMapping("/api/collaboration")
+public class CollaborationController {
+    @Autowired
+    CollaborationService collaborationService;
+
+    @Autowired
+    JwtUtil jwtUtil;
+
+    @PostMapping("/invite")
+    public Result<String> createInvitation(@RequestHeader("Authorization") String token,
+            @Valid @RequestBody InviteRequest request) {
+        Long docId = request.getDocId();
+        Integer permission = request.getPermission();
+        Integer expTime = request.getExpTime();
+        if (expTime > 0 && jwtUtil.validateToken(token) && Constants.CollaborationPermission.isValid(permission)) {
+            return collaborationService.createInvitation(token, docId, permission, expTime);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/invite/accept")
+    public Result<?> acceptInvitation(@RequestHeader("Authorization") String token, @RequestBody String invToken) {
+        return collaborationService.acceptInvitation(token, invToken);
+    }
+
+
+    @PostMapping("/permission}")
+    public Result<?> updatePermission(@RequestHeader("Authorization") String token ,@Valid @RequestBody PermissionRequest request){
+        Long docId = request.getDocId();
+        Long targetUserId = request.getTargetUserId();
+        Integer permission = request.getPermission();
+        if( jwtUtil.validateToken(token) && Constants.CollaborationPermission.isValid(permission)){
+            return collaborationService.updatePermission( token, targetUserId, docId, permission);
+        }else{
+            return Result.error(403,"校验不通过");
+        }
+    }
+
+    @GetMapping("/docs/{docId}/collaborators")
+    public Result<List<CollaboratorVo>> getCollaborators(@RequestHeader("Authorization") String token, @PathVariable Long docId) {
+        if (jwtUtil.validateToken(token)) {
+            return collaborationService.selectCollaboratorsByDocId(token, docId);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/api/controller/AiController.java
+package com.vigza.markweave.api.controller;
+
+import java.util.Map;
+
+import javax.validation.Valid;
+import javax.validation.constraints.NotNull;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.core.service.MarkdownAiServiceImpl;
+
+@RestController
+@RequestMapping("/api/ai")
+public class AiController {
+
+    @Autowired
+    private MarkdownAiServiceImpl aiService;
+
+    @PostMapping("/format")
+    public Result<String> formatMarkdown(@RequestHeader("Authorization") String token,@Valid @NotNull @RequestBody Long docId) {
+        return aiService.smartFormat(token, docId);
+    }
+}
+---
+FILE: ./src/main/java/com/vigza/markweave/api/controller/FileSystemController.java
+package com.vigza.markweave.api.controller;
+
+import java.io.File;
+import java.util.List;
+
+import javax.validation.Valid;
+import javax.validation.constraints.NotNull;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.vigza.markweave.api.dto.FileSystem.CreateFileRequest;
+import com.vigza.markweave.api.dto.FileSystem.CreateShortcutRequest;
+import com.vigza.markweave.api.dto.FileSystem.FsNodeVo;
+import com.vigza.markweave.api.dto.FileSystem.MoveRequest;
+import com.vigza.markweave.api.dto.FileSystem.RecentDocVO;
+import com.vigza.markweave.api.dto.FileSystem.RenameRequest;
+import com.vigza.markweave.common.Constants;
+import com.vigza.markweave.common.Result;
+import com.vigza.markweave.common.util.IdGenerator;
+import com.vigza.markweave.common.util.JwtUtil;
+import com.vigza.markweave.core.service.FileSystemService;
+import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
+
+@Validated
+@RestController
+@RequestMapping("/api/fs")
+public class FileSystemController {
+    @Autowired
+    FileSystemService fsService;
+
+    @Autowired
+    JwtUtil jwtUtil;
+
+    @PostMapping("/file/create")
+    Result<FsNode> createCommonFile(@RequestHeader("Authorization") String token,
+            @Valid @RequestBody CreateFileRequest request) {
+        Long faId = request.getFaId();
+        String fileName = request.getFileName();
+        Integer fileType = request.getFileType();
+        if (jwtUtil.validateToken(token) && Constants.FsNodeType.isCommonType(fileType)) {
+            Long id = IdGenerator.nextId();
+            return fsService.createNode(fileName, id, faId, fileType, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/shortcut/create")
+    Result<FsNode> createShortcut(@RequestHeader("Authorization") String token,
+            @Valid @RequestBody CreateShortcutRequest request) {
+        Long faId = request.getFaId();
+        Long srcNodeId = request.getSrcNodeId();
+        if (jwtUtil.validateToken(token)) {
+            return fsService.createPtrNode(faId, srcNodeId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/rename")
+    Result<?> rename(@RequestHeader("Authorization") String token, @Valid @RequestBody RenameRequest request) {
+        Long nodeId = request.getNodeId();
+        String newName = request.getNewName();
+        if (jwtUtil.validateToken(token)) {
+            return fsService.rename(nodeId, newName, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/move")
+    Result<?> move(@RequestHeader("Authorization") String token, @Valid @RequestBody MoveRequest request) {
+        Long nodeId = request.getNodeId();
+        Long targetFolderId = request.getTargetFolderId();
+        if (jwtUtil.validateToken(token)) {
+            return fsService.move(nodeId, targetFolderId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/recycle")
+    Result<?> recycle(@RequestHeader("Authorization") String token, @Valid @NotNull Long nodeId) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.recycle(nodeId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @GetMapping("/files/{faId}/list")
+    Result<List<FsNodeVo>> listFiles(@RequestHeader("Authorization") String token, @PathVariable Long faId) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.listFiles(faId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/viewtime/update")
+    Result<?> updateViewTime(@RequestHeader("Authorization") String token, @Valid @NotNull Long nodeId) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.updateViewTime(nodeId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @GetMapping("/docs/recent")
+    Result<List<RecentDocVO>> selectRecentDocList(@RequestHeader("Authorization") String token) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.selectRecentDocList(token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+}
+
+---
 FILE: ./src/main/java/com/vigza/markweave/api/controller/AuthController.java
 package com.vigza.markweave.api.controller;
 
-import com.vigza.markweave.api.dto.AuthResponse;
-import com.vigza.markweave.api.dto.LoginRequest;
-import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.api.dto.Auth.AuthResponse;
+import com.vigza.markweave.api.dto.Auth.LoginRequest;
+import com.vigza.markweave.api.dto.Auth.RegisterRequest;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.core.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -1857,7 +2253,7 @@ public class User {
   private String account;
   private String password;
   private String salt;
-  private String nickname;
+  private String nickName;
   private String headUrl;
   private LocalDateTime createTime;
   private Integer type;
