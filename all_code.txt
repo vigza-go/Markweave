@@ -1,149 +1,3 @@
-# MarkWeave - *正在开发*
-
-**前端** : vite vue monaco-editor
-
-**后端** : Spring Boot, WebSocket, MySQL, Redis, RabbitMQ, MinIO, OT 算法, SpringAI 
-
-**项目描述**： 
-- 该项目是一款实时 Markdown 协同编辑平台，支持多人在线同时编辑、AI 辅助创作及多格式转换。为解决协作过程中的内容冲突，自研了基于 OT算法的冲突协同模块，实现了高可用、低延迟的办公协作环境。
-
-**todolist:**
-- [x] 登陆jwt访问控制
-- [x] 文件系统云盘服务
-- [x] 文件权限管理服务
-- [x] 后端/前端ot算法
-- [ ] 分布式系统设计，使用Redis作为分布式锁、缓存各个文档的版本号、操作列表
-- [ ] 分布式系统设计，使用RabbitMQ 发布订阅、异步落库、延时重试
-- [ ] 需考虑使用RabbitMq的数据一致性
-- [ ] 需要处理前端发来操作消息的幂等性
-- [ ] 考虑前后端消息丢失的问题 
-- [ ] 集成日志收集工具
-- [ ] ai生成服务
-- [ ] 拆分成微服务
-- [ ] 前端开发
-- [ ] 前端undo/redo 栈
-
-### “为什么不用 RocketMQ？” 
-“在 Markweave 的选型中，优先考虑的是实时交互的低延迟。RabbitMQ 基于 Erlang 开发，在消息转发的时延上具有微秒级的优势，非常适合 OT 算法的操作流同步。此外，RabbitMQ 灵活的 Exchange 模型能通过 Fanout 模式轻松实现 WebSocket 集群的广播，而 RocketMQ 的设计初衷更多是解决海量吞吐和事务一致性，对于这种实时办公场景，RabbitMQ 的性价比和响应速度更高。”
-
-
-
-
-***分布式 OT 协作 UML 时序图***
-```mermaid
-sequenceDiagram
-    participant UserA as 用户 A (Client)
-    participant S1 as Server 1 (WebSocket)
-    participant Redis as Redis (Lock & Data)
-    participant MQ as RabbitMQ (Fanout Exchange)
-    participant S2 as Server 2 (WebSocket)
-    participant UserB as 用户 B (Client)
-
-    Note over UserA, UserB: 实时协作开始
-    UserA->>S1: 发送编辑操作 (op, clientVer)
-    
-    S1->>Redis: 尝试获取分布式锁 (docId)
-    alt 获取锁成功
-        Redis-->>S1: Lock Acquired (Watchdog 启动)
-        S1->>Redis: 获取当前版本 & 历史 Ops
-        S1->>S1: 执行 OT Transform (计算新 op')
-        S1->>Redis: 更新 FullText & Version++ & Push History
-        S1->>Redis: 释放锁
-        
-        S1->>MQ: 发送广播消息 (docId, finalOp, newVer)
-    else 获取锁失败 (冲突)
-        S1->>MQ: 转发至重试队列 (Retry Queue)
-        S1-->>UserA: (可选) 发送 Ack/等待通知
-    end
-
-    Note over MQ: Fanout 广播给所有服务器实例
-
-    MQ-->>S1: 收到广播消息
-    MQ-->>S2: 收到广播消息
-
-    S1->>S1: 检查本地是否有 docId 的 Session
-    S1->>UserA: 推送最终结果 (或 ACK)
-
-    S2->>S2: 检查本地是否有 docId 的 Session
-    S2->>UserB: 推送最终结果 (newOp)
-    
-    Note over UserB: 编辑同步完成
-```
-vigza@vigza-B250M-D2VX-SI:~/workspace/Markweave$ tree src
-src
-├── main
-│   ├── java
-│   │   └── com
-│   │       └── vigza
-│   │           └── markweave
-│   │               ├── api
-│   │               │   ├── controller
-│   │               │   │   └── AuthController.java
-│   │               │   ├── dto
-│   │               │   │   ├── AuthResponse.java
-│   │               │   │   ├── CreateFileRequest.java
-│   │               │   │   ├── FsNodeVo.java
-│   │               │   │   ├── InviteRequest.java
-│   │               │   │   ├── LoginRequest.java
-│   │               │   │   ├── MoveRequest.java
-│   │               │   │   ├── RecentDocVO.java
-│   │               │   │   ├── RegisterRequest.java
-│   │               │   │   └── RenameRequest.java
-│   │               │   └── websocket
-│   │               │       └── CollaborationHandler.java
-│   │               ├── common
-│   │               │   ├── BusinessException.java
-│   │               │   ├── Constants.java
-│   │               │   ├── GlobalExceptionHandler.java
-│   │               │   ├── Result.java
-│   │               │   └── util
-│   │               │       ├── IdGenerator.java
-│   │               │       ├── JwtUtil.java
-│   │               │       └── TextOperation.java
-│   │               ├── core
-│   │               │   └── service
-│   │               │       ├── CollaborationServiceImpl.java
-│   │               │       ├── CollaborationService.java
-│   │               │       ├── FileSystemServiceImpl.java
-│   │               │       ├── FileSystemService.java
-│   │               │       ├── UserServiceImpl.java
-│   │               │       └── UserService.java
-│   │               ├── infrastructure
-│   │               │   ├── config
-│   │               │   │   ├── JwtInterceptor.java
-│   │               │   │   ├── RabbitMqConfig.java
-│   │               │   │   ├── RedisConfig.java
-│   │               │   │   ├── RedissonConfig.java
-│   │               │   │   ├── WebConfig.java
-│   │               │   │   ├── WebSocketConfig.java
-│   │               │   │   └── WebSocketInterceptor.java
-│   │               │   ├── mq
-│   │               │   │   └── CollaborationMessageListener.java
-│   │               │   ├── persistence
-│   │               │   │   ├── entity
-│   │               │   │   │   ├── Collaboration.java
-│   │               │   │   │   ├── Doc.java
-│   │               │   │   │   ├── FsNode.java
-│   │               │   │   │   └── User.java
-│   │               │   │   └── mapper
-│   │               │   │       ├── CollaborationMapper.java
-│   │               │   │       ├── DocMapper.java
-│   │               │   │       ├── FsNodeMapper.java
-│   │               │   │       └── UserMapper.java
-│   │               │   └── service
-│   │               │       └── RedisService.java
-│   │               └── MarkweaveApplication.java
-│   └── resources
-│       └── application.properties
-└── test
-    └── java
-        └── com
-            └── vigza
-                └── markweave
-                    └── MarkweaveApplicationTests.java
-
-27 directories, 44 files
-
 FILE: ./src/main/java/com/vigza/markweave/core/service/UserService.java
 package com.vigza.markweave.core.service;
 
@@ -535,6 +389,7 @@ import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
 import com.vigza.markweave.common.util.TextOperation;
+import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
 import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
@@ -718,7 +573,7 @@ public class CollaborationServiceImpl implements CollaborationService {
         RLock lock = redissonClient.getLock(lockKey);
         boolean isLocked = false;
         try {
-            isLocked = lock.tryLock(3000, TimeUnit.SECONDS);
+            isLocked = lock.tryLock(3, TimeUnit.SECONDS);
             if (isLocked) {
                 Long clientVer = clientMsg.getLong("version");
                 TextOperation clientOp = null;
@@ -761,10 +616,20 @@ public class CollaborationServiceImpl implements CollaborationService {
                 fullText = clientOp.apply(fullText.toString());
                 redisService.setFullText(docId, fullText);
                 String response = JSONUtil.toJsonStr(clientMsg);
-                rabbitTemplate.convertAndSend("mw.collaboration.fanout", "", response);
+                rabbitTemplate.convertAndSend(RabbitMqConfig.COLLABORATION_EXCHANGE, "", response);
             } else {
                 log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
-                rabbitTemplate.convertAndSend("mw.retry.exchange", "retry.key", clientMsg);
+                Integer count = clientMsg.getInt("retryCount");
+                if(count == null){
+                    count = 0;
+                }
+                Integer retryCount = count + 1;
+                clientMsg.set("retryCount", retryCount);
+                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY, clientMsg,msg -> {
+                    Long backoff = computeBackoff(retryCount);
+                    msg.getMessageProperties().setExpiration(backoff.toString());
+                    return msg;
+                });
             }
         } catch (InterruptedException e) {
             log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
@@ -773,7 +638,11 @@ public class CollaborationServiceImpl implements CollaborationService {
                 lock.unlock();
             }
         }
+    }
 
+    private Long computeBackoff(Integer retryCount){
+        int shift = Math.min(retryCount - 1,16);
+        return (1L << shift) ;
     }
 }
 
@@ -1703,10 +1572,6 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
 
-import org.redisson.Redisson;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -1714,7 +1579,6 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import com.vigza.markweave.common.util.TextOperation;
 import com.vigza.markweave.core.service.CollaborationService;
 import com.vigza.markweave.core.service.FileSystemServiceImpl;
 import com.vigza.markweave.infrastructure.service.RedisService;
@@ -1723,7 +1587,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -1771,8 +1634,10 @@ public class CollaborationHandler extends TextWebSocketHandler {
         String token = (String) session.getAttributes().get("token");
         session.getAttributes().put("docId", docId);
 
-        map.computeIfAbsent(docId, k -> ConcurrentHashMap.newKeySet()).add(session);
-
+        boolean added =  map.computeIfAbsent(docId, k -> ConcurrentHashMap.newKeySet()).add(session);
+        if(added){
+            redisService.incrementDocConnections(docId);
+        }
         if (!collaborationService.canRead(token, docId)) {
             safeSend(session, new TextMessage((new JSONObject()).set("error", "无权访问").toString()));
             return;
@@ -1828,23 +1693,23 @@ public class CollaborationHandler extends TextWebSocketHandler {
          * 两个线程可能同时判断 isEmpty() 为真，导致逻辑执行两次。
          * 更糟糕的是，如果此时正好有 C 用户进来，他的 Session 可能会被你的 clearRoom 给误删掉。
          */
-        synchronized (docId.toString().intern()) {
             if (docId != null) {
                 Set<WebSocketSession> sessions = map.get(docId);
                 if (sessions != null) {
-                    sessions.remove(session);
-                    if (sessions.isEmpty()) {
-                        String finalTarget = redisService.getFullText(docId);
-                        if (finalTarget != null) {
-                            fsNodeService.updateDocContent(docId, finalTarget);
-                            redisService.clearRoom(docId);
+                    boolean removed = sessions.remove(session);
+                    if(removed){
+                        redisService.decrementDocConnections(docId);
+                        if (redisService.getDocConnections(docId) <= 0) {
+                            String finalTarget = redisService.getFullText(docId);
+                            if (finalTarget != null) {
+                                fsNodeService.updateDocContent(docId, finalTarget);
+                                redisService.clearRoom(docId);
+                            }
+                            map.remove(docId);
                         }
-                        map.remove(docId);
                     }
                 }
             }
-            throw new UnsupportedOperationException("Unimplemented method 'boardcastToLocal'");
-        }
 
     }
 
@@ -2088,6 +1953,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.vigza.markweave.api.websocket.CollaborationHandler;
+import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
 
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -2099,7 +1965,7 @@ public class CollaborationMessageListener {
     @Autowired
     private CollaborationHandler collaborationHandler;
 
-    @RabbitListener(queues = "#{autoDeleteQueue.name}")
+    @RabbitListener(queues = RabbitMqConfig.COLLABORATION_MSG_QUEUE)
     public void onMessage(String messagePayload){
         try{
             JSONObject msg = new JSONUtil().parseObj(messagePayload);
@@ -2116,6 +1982,36 @@ public class CollaborationMessageListener {
 }
 
 ---
+FILE: ./src/main/java/com/vigza/markweave/infrastructure/mq/RetryMessageListener.java
+package com.vigza.markweave.infrastructure.mq;
+
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import com.vigza.markweave.core.service.CollaborationService;
+import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
+
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+
+@Component
+public class RetryMessageListener {
+
+    @Autowired
+    private CollaborationService collaborationService;
+
+
+
+    @RabbitListener(queues = RabbitMqConfig.RETRY_QUEUE)
+    public void onMessage(String messagePayload){
+        JSONObject msg = new JSONUtil().parseObj(messagePayload);
+        Long docId = msg.getLong("docId");
+        collaborationService.processOperation(docId, msg);
+    }
+}
+
+---
 FILE: ./src/main/java/com/vigza/markweave/infrastructure/service/RedisService.java
 package com.vigza.markweave.infrastructure.service;
 
@@ -2127,7 +2023,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
-import com.vigza.markweave.infrastructure.persistence.entity.Doc;
 
 @Service
 public class RedisService {
@@ -2141,13 +2036,15 @@ public class RedisService {
     private static final String DOC_VERSION_PREFIX = "doc:version:";
     private static final String DOC_TEXT_PREFIX = "doc:text:";
     private static final String DOC_HISTORY_PREFIX = "doc:history:";
+    private static final String DOC_CONNECTIONS_PREFIX = "doc:connections:";
 
     public Long getAndIncrementVersion(Long docId) {
         return redisTemplate.opsForValue().increment(DOC_VERSION_PREFIX + docId);
     }
 
     public Long getVersion(Long docId) {
-        return (Long) redisTemplate.opsForValue().get(DOC_VERSION_PREFIX + docId);
+        Object version = redisTemplate.opsForValue().get(DOC_VERSION_PREFIX + docId);
+        return version == null ? 0L : (Long) version;
     }
 
     public String getFullText(Long docId) {
@@ -2187,7 +2084,27 @@ public class RedisService {
         String verKey = DOC_VERSION_PREFIX + docId;
         String textKey = DOC_TEXT_PREFIX + docId;
         String histKey = DOC_HISTORY_PREFIX + docId;
-        redisTemplate.delete(Arrays.asList(verKey,textKey,histKey));
+        redisTemplate.delete(Arrays.asList(verKey, textKey, histKey));
+    }
+
+    public Long getDocConnections(Long docId) {
+        Object obj = redisTemplate.opsForValue().get(DOC_CONNECTIONS_PREFIX + docId);
+        if (obj == null) {
+            return 0L;
+        }
+        Long count = (Long) obj;
+        if (count < 0) {
+            redisTemplate.opsForValue().set(DOC_CONNECTIONS_PREFIX + docId, 0L);
+        }
+        redisTemplate.expire(DOC_CONNECTIONS_PREFIX + docId, expiration, TimeUnit.SECONDS);
+        return count;
+    }
+
+    public void incrementDocConnections(Long docId) {
+        redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId);
+    }
+    public void decrementDocConnections(Long docId){
+        redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId,-1);
     }
 }
 
@@ -2195,34 +2112,72 @@ public class RedisService {
 FILE: ./src/main/java/com/vigza/markweave/infrastructure/config/RabbitMqConfig.java
 package com.vigza.markweave.infrastructure.config;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import org.springframework.amqp.core.AnonymousQueue;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.FanoutExchange;
 import org.springframework.amqp.core.Queue;
+import org.springframework.boot.autoconfigure.amqp.RabbitProperties.Retry;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class RabbitMqConfig {
-    public static final String EXCHANGE_NAME = "mw.collaboration.boardcast";
+    public static final String COLLABORATION_EXCHANGE = "mw.collaboration.exchange";
+    public static final String COLLABORATION_MSG_QUEUE = "mw.collaboration.queue";
 
-    // 1. 定义交换机
+
+    public static final String RETRY_EXCHANGE = "mw.retry.exchange";
+    public static final String RETRY_QUEUE = "mw.retry.queue";
+    public static final String RETRY_ROUTING_KEY = "mw.retry.key";
+    public static final String RETRY_DELAY_QUEUE = "mw.retry.delay.queue";
+    public static final String RETRY_DELAY_ROUTING_KEY = "mw,retry.delay.key";
+
     @Bean
-    public FanoutExchange fanoutExchange() {
-        return new FanoutExchange(EXCHANGE_NAME);
+    public FanoutExchange collaborationExchange(){
+        return new FanoutExchange(COLLABORATION_EXCHANGE);
     }
 
-    // 2. 定义匿名、自动删除的临时队列（每台服务器实例独有）
     @Bean
-    public Queue autoDeleteQueue() {
-        return new AnonymousQueue();
+    public Queue collaborationMsgQueue(){
+        return new Queue(COLLABORATION_MSG_QUEUE);
     }
 
-    // 3. 绑定队列到交换机
     @Bean
-    public Binding binding(FanoutExchange fanoutExchange,Queue autoDeleteQueue){
-        return BindingBuilder.bind(autoDeleteQueue).to(fanoutExchange);
+    public Binding collaborationBinding(FanoutExchange collaborationExchange,Queue collaborationMsgQueue){
+        return BindingBuilder.bind(collaborationMsgQueue).to(collaborationExchange);
+    }
+
+    @Bean
+    public DirectExchange retryExchange() {
+        return new DirectExchange(RETRY_EXCHANGE);
+    }
+
+    @Bean
+    public Queue retryQueue() {
+        return new Queue(RETRY_QUEUE);
+    }
+
+    @Bean
+    public Queue retryDelayQueue() {
+        return new Queue(RETRY_DELAY_QUEUE);
+    }
+
+    @Bean
+    public Binding retryDelayBinding(DirectExchange retryExchange, Queue retryDelayQueue) {
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-dead-letter-exchange", RETRY_EXCHANGE);
+        args.put("x-dead-letter-routing-key", RETRY_ROUTING_KEY);
+        return BindingBuilder.bind(retryDelayQueue).to(retryExchange).with(RETRY_DELAY_ROUTING_KEY);
+    }
+
+    @Bean
+    Binding retryBinding(DirectExchange retryExchange, Queue retryQueue) {
+        return BindingBuilder.bind(retryQueue).to(retryExchange).with(RETRY_ROUTING_KEY);
     }
 
 }

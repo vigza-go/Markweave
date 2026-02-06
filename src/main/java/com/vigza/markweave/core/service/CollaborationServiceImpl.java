@@ -43,9 +43,6 @@ public class CollaborationServiceImpl implements CollaborationService {
     private UserMapper userMapper;
 
     @Autowired
-    private FsNodeMapper fsNodeMapper;
-
-    @Autowired
     private RedissonClient redissonClient;
 
     @Autowired
@@ -250,16 +247,17 @@ public class CollaborationServiceImpl implements CollaborationService {
             } else {
                 log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
                 Integer count = clientMsg.getInt("retryCount");
-                if(count == null){
+                if (count == null) {
                     count = 0;
                 }
                 Integer retryCount = count + 1;
                 clientMsg.set("retryCount", retryCount);
-                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY, clientMsg,msg -> {
-                    Long backoff = computeBackoff(retryCount);
-                    msg.getMessageProperties().setExpiration(backoff.toString());
-                    return msg;
-                });
+                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY,
+                        clientMsg, msg -> {
+                            Long backoff = computeBackoff(retryCount);
+                            msg.getMessageProperties().setExpiration(backoff.toString());
+                            return msg;
+                        });
             }
         } catch (InterruptedException e) {
             log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
@@ -270,8 +268,8 @@ public class CollaborationServiceImpl implements CollaborationService {
         }
     }
 
-    private Long computeBackoff(Integer retryCount){
-        int shift = Math.min(retryCount - 1,16);
-        return (1L << shift) ;
+    private Long computeBackoff(Integer retryCount) {
+        int shift = Math.min(retryCount - 1, 16);
+        return (1L << shift);
     }
 }

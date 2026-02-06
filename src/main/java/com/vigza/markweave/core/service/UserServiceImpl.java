@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vigza.markweave.api.dto.AuthResponse;
 import com.vigza.markweave.api.dto.LoginRequest;
 import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
@@ -28,7 +29,7 @@ public class UserServiceImpl implements UserService {
     private RedisService redisService;
 
     @Autowired
-    private FileSystemServiceImpl fileSystemService;
+    private FileSystemService fileSystemService;
 
     @Autowired
     private JwtUtil jwtUtils;
@@ -66,7 +67,7 @@ public class UserServiceImpl implements UserService {
         user.setSalt(salt);
         user.setNickname(request.getNickname());
         user.setCreateTime(LocalDateTime.now());
-        user.setType(0);
+        user.setType(Constants.UserType.NORMAL);
         user.setId(IdGenerator.nextId());
         user.setUserSpaceNodeId(IdGenerator.nextId());
         user.setUserShareSpaceNodeId(IdGenerator.nextId());

@@ -1,5 +1,7 @@
 package com.vigza.markweave.common.util;
 
+import java.sql.Time;
+
 import cn.hutool.core.lang.Snowflake;
 import cn.hutool.core.util.IdUtil;
 
@@ -7,8 +9,8 @@ public class IdGenerator {
     private static Snowflake snowflake;
     
     static {
-        long workerId = 0; 
-        long datacenterId = 0;
+        long workerId = System.currentTimeMillis() % 2026; 
+        long datacenterId = System.currentTimeMillis() % 2026;
         snowflake = IdUtil.getSnowflake(workerId, datacenterId);
     }
     
