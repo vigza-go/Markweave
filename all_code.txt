@@ -413,9 +413,6 @@ public class CollaborationServiceImpl implements CollaborationService {
     private UserMapper userMapper;
 
     @Autowired
-    private FsNodeMapper fsNodeMapper;
-
-    @Autowired
     private RedissonClient redissonClient;
 
     @Autowired
@@ -620,16 +617,17 @@ public class CollaborationServiceImpl implements CollaborationService {
             } else {
                 log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
                 Integer count = clientMsg.getInt("retryCount");
-                if(count == null){
+                if (count == null) {
                     count = 0;
                 }
                 Integer retryCount = count + 1;
                 clientMsg.set("retryCount", retryCount);
-                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY, clientMsg,msg -> {
-                    Long backoff = computeBackoff(retryCount);
-                    msg.getMessageProperties().setExpiration(backoff.toString());
-                    return msg;
-                });
+                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY,
+                        clientMsg, msg -> {
+                            Long backoff = computeBackoff(retryCount);
+                            msg.getMessageProperties().setExpiration(backoff.toString());
+                            return msg;
+                        });
             }
         } catch (InterruptedException e) {
             log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
@@ -640,9 +638,9 @@ public class CollaborationServiceImpl implements CollaborationService {
         }
     }
 
-    private Long computeBackoff(Integer retryCount){
-        int shift = Math.min(retryCount - 1,16);
-        return (1L << shift) ;
+    private Long computeBackoff(Integer retryCount) {
+        int shift = Math.min(retryCount - 1, 16);
+        return (1L << shift);
     }
 }
 
@@ -694,6 +692,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vigza.markweave.api.dto.AuthResponse;
 import com.vigza.markweave.api.dto.LoginRequest;
 import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
@@ -713,7 +712,7 @@ public class UserServiceImpl implements UserService {
     private RedisService redisService;
 
     @Autowired
-    private FileSystemServiceImpl fileSystemService;
+    private FileSystemService fileSystemService;
 
     @Autowired
     private JwtUtil jwtUtils;
@@ -751,7 +750,7 @@ public class UserServiceImpl implements UserService {
         user.setSalt(salt);
         user.setNickname(request.getNickname());
         user.setCreateTime(LocalDateTime.now());
-        user.setType(0);
+        user.setType(Constants.UserType.NORMAL);
         user.setId(IdGenerator.nextId());
         user.setUserSpaceNodeId(IdGenerator.nextId());
         user.setUserShareSpaceNodeId(IdGenerator.nextId());
@@ -924,6 +923,8 @@ public class Result<T> {
 FILE: ./src/main/java/com/vigza/markweave/common/util/IdGenerator.java
 package com.vigza.markweave.common.util;
 
+import java.sql.Time;
+
 import cn.hutool.core.lang.Snowflake;
 import cn.hutool.core.util.IdUtil;
 
@@ -931,8 +932,8 @@ public class IdGenerator {
     private static Snowflake snowflake;
     
     static {
-        long workerId = 0; 
-        long datacenterId = 0;
+        long workerId = System.currentTimeMillis() % 2026; 
+        long datacenterId = System.currentTimeMillis() % 2026;
         snowflake = IdUtil.getSnowflake(workerId, datacenterId);
     }
     

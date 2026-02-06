@@ -29,38 +29,6 @@
 - [ ] 考虑前后端消息丢失的问题 
 - [ ] 需要处理前端发来操作消息的幂等性
 
-```mermaid
-sequenceDiagram
-    participant U as 用户 (User)
-    participant NIC as 无线网卡 (Monitor Mode)
-    participant AP as 目标路由器 (Target AP)
-    participant ST as 客户端设备 (Station/Phone)
-    participant GPU as Hashcat (GPU 破解)
-
-    Note over U, NIC: 第一阶段：环境准备
-    U->>NIC: 开启监听模式 (airmon-ng start)
-    U->>NIC: 扫描附近 WiFi (airodump-ng)
-    NIC-->>U: 返回 BSSID 和 信道 (CH)
-
-    Note over U, AP: 第二阶段：抓取握手包
-    U->>NIC: 锁定信道并保存包 (airodump-ng -c X -w file)
-    U->>NIC: 发送反认证包 (aireplay-ng -0)
-    NIC->>ST: 强制断开连接
-    ST->>AP: 自动重新连接
-    Note right of ST: 关键时刻：四次握手 (4-Way Handshake)
-    AP-->>ST: 交换握手信息
-    NIC-->>U: 捕获并保存 [WPA Handshake] 到 .cap
-
-    Note over U, GPU: 第三阶段：转换与破解
-    U->>U: 转换格式 (hcxpcapngtool .cap -> .hc22000)
-    U->>GPU: 加载字典或掩码 (hashcat -m 22000)
-    GPU->>GPU: 利用 RX 470 并行计算哈希
-    alt 匹配成功
-        GPU-->>U: 输出密码 (Cracked!)
-    else 匹配失败
-        GPU-->>U: 任务结束 (Exhausted)
-    end
-```
 
 
 ### “为什么不用 RocketMQ？” 
