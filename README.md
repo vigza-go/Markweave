@@ -23,6 +23,7 @@
 - [ ] 前端开发
 - [ ] 前端undo/redo 栈
 - [ ] 解决在数据库里存文档的问题
+  - 方案草案见：`docs/document-storage-strategy.md`
 - [ ] handler的sessionMap内存溢出风险 (OOM)
 - [ ] afterConnectionClosed的分布式化
 - [ ] 重试机制的指数退避机制

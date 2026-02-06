@@ -8,8 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
-import com.vigza.markweave.infrastructure.persistence.entity.Doc;
-
 @Service
 public class RedisService {
 
@@ -22,6 +20,7 @@ public class RedisService {
     private static final String DOC_VERSION_PREFIX = "doc:version:";
     private static final String DOC_TEXT_PREFIX = "doc:text:";
     private static final String DOC_HISTORY_PREFIX = "doc:history:";
+    private static final String DOC_CONNECTION_PREFIX = "doc:connections:";
 
     public Long getAndIncrementVersion(Long docId) {
         return redisTemplate.opsForValue().increment(DOC_VERSION_PREFIX + docId);
@@ -69,5 +68,37 @@ public class RedisService {
         String textKey = DOC_TEXT_PREFIX + docId;
         String histKey = DOC_HISTORY_PREFIX + docId;
         redisTemplate.delete(Arrays.asList(verKey,textKey,histKey));
+    }
+
+    public long incrementDocConnections(Long docId) {
+        String key = DOC_CONNECTION_PREFIX + docId;
+        Long count = redisTemplate.opsForValue().increment(key);
+        if (count != null) {
+            redisTemplate.expire(key, expiration, TimeUnit.SECONDS);
+            return count;
+        }
+        return 0L;
+    }
+
+    public long decrementDocConnections(Long docId) {
+        String key = DOC_CONNECTION_PREFIX + docId;
+        Long count = redisTemplate.opsForValue().increment(key, -1);
+        if (count == null) {
+            return 0L;
+        }
+        if (count < 0) {
+            redisTemplate.opsForValue().set(key, 0);
+            return 0L;
+        }
+        return count;
+    }
+
+    public long getDocConnections(Long docId) {
+        String key = DOC_CONNECTION_PREFIX + docId;
+        Object value = redisTemplate.opsForValue().get(key);
+        if (value == null) {
+            return 0L;
+        }
+        return Long.parseLong(value.toString());
     }
 }

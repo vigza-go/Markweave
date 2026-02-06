@@ -40,4 +40,15 @@ public class Constants {
 
   }
 
+  public static class Health {
+    public static final String STATUS_OK = "ok";
+    public static final String DEFAULT_APP_NAME = "markweave";
+  }
+
+  public static class Retry {
+    public static final int MAX_ATTEMPTS = 6;
+    public static final long BASE_BACKOFF_MILLIS = 200L;
+    public static final long MAX_BACKOFF_MILLIS = 5_000L;
+  }
+
 }

@@ -66,7 +66,10 @@ public class CollaborationHandler extends TextWebSocketHandler {
         String token = (String) session.getAttributes().get("token");
         session.getAttributes().put("docId", docId);
 
-        map.computeIfAbsent(docId, k -> ConcurrentHashMap.newKeySet()).add(session);
+        boolean added = map.computeIfAbsent(docId, k -> ConcurrentHashMap.newKeySet()).add(session);
+        if (added) {
+            redisService.incrementDocConnections(docId);
+        }
 
         if (!collaborationService.canRead(token, docId)) {
             safeSend(session, new TextMessage((new JSONObject()).set("error", "无权访问").toString()));
@@ -117,28 +120,25 @@ public class CollaborationHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         Long docId = (Long) session.getAttributes().get("docId");
-        /**
-         * 风险：这是经典的 Check-then-Act 问题。
-         * 假设 A、B 两个用户同时断开连接，
-         * 两个线程可能同时判断 isEmpty() 为真，导致逻辑执行两次。
-         * 更糟糕的是，如果此时正好有 C 用户进来，他的 Session 可能会被你的 clearRoom 给误删掉。
-         */
-        synchronized (docId.toString().intern()) {
-            if (docId != null) {
-                Set<WebSocketSession> sessions = map.get(docId);
-                if (sessions != null) {
-                    sessions.remove(session);
-                    if (sessions.isEmpty()) {
-                        String finalTarget = redisService.getFullText(docId);
-                        if (finalTarget != null) {
-                            fsNodeService.updateDocContent(docId, finalTarget);
-                            redisService.clearRoom(docId);
-                        }
-                        map.remove(docId);
+        if (docId == null) {
+            return;
+        }
+        Set<WebSocketSession> sessions = map.get(docId);
+        if (sessions != null) {
+            boolean removed = sessions.remove(session);
+            if (removed) {
+                long remainingConnections = redisService.decrementDocConnections(docId);
+                if (sessions.isEmpty()) {
+                    map.remove(docId);
+                }
+                if (remainingConnections <= 0) {
+                    String finalTarget = redisService.getFullText(docId);
+                    if (finalTarget != null) {
+                        fsNodeService.updateDocContent(docId, finalTarget);
+                        redisService.clearRoom(docId);
                     }
                 }
             }
-            throw new UnsupportedOperationException("Unimplemented method 'boardcastToLocal'");
         }
 
     }

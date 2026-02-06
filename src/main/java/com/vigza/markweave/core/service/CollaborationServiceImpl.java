@@ -24,6 +24,7 @@ import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.UserMapper;
+import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
 import com.vigza.markweave.infrastructure.service.RedisService;
 
 import cn.hutool.json.JSONObject;
@@ -245,10 +246,17 @@ public class CollaborationServiceImpl implements CollaborationService {
                 fullText = clientOp.apply(fullText.toString());
                 redisService.setFullText(docId, fullText);
                 String response = JSONUtil.toJsonStr(clientMsg);
-                rabbitTemplate.convertAndSend("mw.collaboration.fanout", "", response);
+                rabbitTemplate.convertAndSend(RabbitMqConfig.COLLABORATION_EXCHANGE, "", response);
             } else {
+                Integer retryCount = clientMsg.getInt("retryCount", 0);
+                clientMsg.set("retryCount", retryCount + 1);
+                long backoffMillis = computeBackoffMillis(retryCount + 1);
                 log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
-                rabbitTemplate.convertAndSend("mw.retry.exchange", "retry.key", clientMsg);
+                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_DELAY_EXCHANGE, RabbitMqConfig.RETRY_DELAY_ROUTING_KEY,
+                        clientMsg, message -> {
+                            message.getMessageProperties().setExpiration(String.valueOf(backoffMillis));
+                            return message;
+                        });
             }
         } catch (InterruptedException e) {
             log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
@@ -258,5 +266,14 @@ public class CollaborationServiceImpl implements CollaborationService {
             }
         }
 
+    }
+
+    private long computeBackoffMillis(int retryCount) {
+        if (retryCount <= 0) {
+            return 0L;
+        }
+        int shift = Math.min(retryCount - 1, 16);
+        long backoff = Constants.Retry.BASE_BACKOFF_MILLIS * (1L << shift);
+        return Math.min(backoff, Constants.Retry.MAX_BACKOFF_MILLIS);
     }
 }
