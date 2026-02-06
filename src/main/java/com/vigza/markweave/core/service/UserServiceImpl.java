@@ -6,9 +6,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.vigza.markweave.api.dto.AuthResponse;
-import com.vigza.markweave.api.dto.LoginRequest;
-import com.vigza.markweave.api.dto.RegisterRequest;
+import com.vigza.markweave.api.dto.Auth.AuthResponse;
+import com.vigza.markweave.api.dto.Auth.LoginRequest;
+import com.vigza.markweave.api.dto.Auth.RegisterRequest;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
@@ -43,7 +43,7 @@ public class UserServiceImpl implements UserService {
         AuthResponse.UserDTO userDTO = AuthResponse.UserDTO.builder()
                 .id(user.getId())
                 .account(user.getAccount())
-                .nickname(user.getNickname())
+                .nickname(user.getNickName())
                 .headUrl(user.getHeadUrl())
                 .type(user.getType())
                 .build();
@@ -65,7 +65,7 @@ public class UserServiceImpl implements UserService {
         String salt = BCrypt.gensalt();
         user.setPassword(BCrypt.hashpw(request.getPassword(), salt ));
         user.setSalt(salt);
-        user.setNickname(request.getNickname());
+        user.setNickName(request.getNickname());
         user.setCreateTime(LocalDateTime.now());
         user.setType(Constants.UserType.NORMAL);
         user.setId(IdGenerator.nextId());

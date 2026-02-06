@@ -25,6 +25,11 @@ public class Constants {
         return false;
       return true;
     }
+    public static boolean isCommonType(int value) {
+      if (value == FILE || value == FOLDER)
+        return true;
+      return false;
+    }
   }
 
   public static class CollaborationPermission {

@@ -1,4 +1,4 @@
-package com.vigza.markweave.api.dto;
+package com.vigza.markweave.api.dto.FileSystem;
 
 import java.time.LocalDateTime;
 

@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.vigza.markweave.api.dto.Collaboration.CollaboratorVo;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
@@ -125,7 +126,7 @@ public class CollaborationServiceImpl implements CollaborationService {
     }
 
     @Override
-    public Result<List<User>> selectCollaboratorsByDocId(String token, Long docId) {
+    public Result<List<CollaboratorVo>> selectCollaboratorsByDocId(String token, Long docId) {
         User user = jwtUtil.getUserFromToken(token);
         if (user == null) {
             return Result.error(401, "未登录");
@@ -139,23 +140,32 @@ public class CollaborationServiceImpl implements CollaborationService {
         queryWrapper.eq(Collaboration::getDocId, docId);
         List<Collaboration> collaborations = collaborationMapper.selectList(queryWrapper);
 
+        Map<Long,Integer> userPermissionMap = new HashMap<>();
         List<Long> userIds = collaborations.stream()
-                .map(Collaboration::getUserId)
+                .map(c ->{
+                    userPermissionMap.put(c.getUserId(),c.getPermission());
+                    return c.getUserId();
+                })
                 .collect(Collectors.toList());
 
         if (userIds.isEmpty()) {
             return Result.success(java.util.Collections.emptyList());
         }
 
-        List<User> users = userMapper.selectList(new LambdaQueryWrapper<User>()
-                .in(User::getId, userIds));
+        List<CollaboratorVo> collaborators = userMapper.selectList(new LambdaQueryWrapper<User>()
+                .in(User::getId, userIds))
+                .stream()
+                .map(u ->{
+                    CollaboratorVo vo = new CollaboratorVo();
+                    vo.setUserId(u.getId());
+                    vo.setNickName(u.getNickName());
+                    vo.setHeadUrl(u.getHeadUrl());
+                    vo.setPermission(userPermissionMap.get(u.getId()));
+                    return vo;
+                })
+                .collect(Collectors.toList());
 
-        users.forEach(u -> {
-            u.setPassword(null);
-            u.setSalt(null);
-        });
-
-        return Result.success(users);
+        return Result.success(collaborators);
     }
 
     @Override

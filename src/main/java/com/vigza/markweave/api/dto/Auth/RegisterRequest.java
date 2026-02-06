@@ -1,4 +1,4 @@
-package com.vigza.markweave.api.dto;
+package com.vigza.markweave.api.dto.Auth;
 
 import lombok.Data;
 import javax.validation.constraints.NotBlank;

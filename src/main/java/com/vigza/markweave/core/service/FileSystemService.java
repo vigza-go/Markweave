@@ -2,8 +2,9 @@
 package com.vigza.markweave.core.service;
 
 import java.util.List;
-import com.vigza.markweave.api.dto.FsNodeVo;
-import com.vigza.markweave.api.dto.RecentDocVO;
+
+import com.vigza.markweave.api.dto.FileSystem.FsNodeVo;
+import com.vigza.markweave.api.dto.FileSystem.RecentDocVO;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
 
@@ -29,5 +30,7 @@ public interface FileSystemService {
     Result<?> updateViewTime(Long nodeId,String token);
 
     Result<List<RecentDocVO>> selectRecentDocList(String token);
+
+    void initUserNodes(String token);
 
 }

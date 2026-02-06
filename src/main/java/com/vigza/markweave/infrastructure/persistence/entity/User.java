@@ -16,7 +16,7 @@ public class User {
   private String account;
   private String password;
   private String salt;
-  private String nickname;
+  private String nickName;
   private String headUrl;
   private LocalDateTime createTime;
   private Integer type;

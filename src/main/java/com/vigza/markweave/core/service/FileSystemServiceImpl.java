@@ -19,8 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
-import com.vigza.markweave.api.dto.FsNodeVo;
-import com.vigza.markweave.api.dto.RecentDocVO;
+import com.vigza.markweave.api.dto.FileSystem.FsNodeVo;
+import com.vigza.markweave.api.dto.FileSystem.RecentDocVO;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
@@ -63,6 +63,7 @@ public class FileSystemServiceImpl implements FileSystemService {
     }
 
     @Transactional
+    @Override
     public void initUserNodes(String token) {
         User user = jwtUtil.getUserFromToken(token);
         FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(),0L, Constants.FsNodeType.FOLDER, token).getData();
@@ -96,7 +97,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         FsNode node = FsNode.builder()
                 .id(nodeId)
                 .userId(user.getId())
-                .docOwner(user.getNickname())
+                .docOwner(user.getNickName())
                 .name(fileName)
                 .faId(faId)
                 .path(faNode.getPath() + "/" + fileName)

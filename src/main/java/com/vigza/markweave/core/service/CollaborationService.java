@@ -2,6 +2,7 @@ package com.vigza.markweave.core.service;
 
 import java.util.List;
 
+import com.vigza.markweave.api.dto.Collaboration.CollaboratorVo;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 
@@ -20,7 +21,7 @@ public interface CollaborationService {
     
     Result<?> updatePermission(String token, Long targetUserId,Long docId,Integer permission);
     
-    Result<List<User>> selectCollaboratorsByDocId(String token, Long docId);
+    Result<List<CollaboratorVo>> selectCollaboratorsByDocId(String token, Long docId);
 
     Result<String> createInvitation(String token, Long docId, Integer permission,Integer expTime);
 
