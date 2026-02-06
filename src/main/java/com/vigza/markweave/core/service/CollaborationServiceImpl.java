@@ -19,6 +19,7 @@ import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
 import com.vigza.markweave.common.util.TextOperation;
+import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
 import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
@@ -245,10 +246,20 @@ public class CollaborationServiceImpl implements CollaborationService {
                 fullText = clientOp.apply(fullText.toString());
                 redisService.setFullText(docId, fullText);
                 String response = JSONUtil.toJsonStr(clientMsg);
-                rabbitTemplate.convertAndSend("mw.collaboration.fanout", "", response);
+                rabbitTemplate.convertAndSend(RabbitMqConfig.COLLABORATION_EXCHANGE, "", response);
             } else {
                 log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
-                rabbitTemplate.convertAndSend("mw.retry.exchange", "retry.key", clientMsg);
+                Integer count = clientMsg.getInt("retryCount");
+                if(count == null){
+                    count = 0;
+                }
+                Integer retryCount = count + 1;
+                clientMsg.set("retryCount", retryCount);
+                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY, clientMsg,msg -> {
+                    Long backoff = computeBackoff(retryCount);
+                    msg.getMessageProperties().setExpiration(backoff.toString());
+                    return msg;
+                });
             }
         } catch (InterruptedException e) {
             log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
@@ -257,6 +268,10 @@ public class CollaborationServiceImpl implements CollaborationService {
                 lock.unlock();
             }
         }
+    }
 
+    private Long computeBackoff(Integer retryCount){
+        int shift = Math.min(retryCount - 1,16);
+        return (1L << shift) ;
     }
 }

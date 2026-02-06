@@ -12,20 +12,56 @@
 - [x] 文件系统云盘服务
 - [x] 文件权限管理服务
 - [x] 后端/前端ot算法
-- [ ] 分布式系统设计，使用Redis作为分布式锁、缓存各个文档的版本号、操作列表
-- [ ] 分布式系统设计，使用RabbitMQ 发布订阅、异步落库、延时重试
-- [ ] 需考虑使用RabbitMq的数据一致性
-- [ ] 需要处理前端发来操作消息的幂等性
-- [ ] 考虑前后端消息丢失的问题 
-- [ ] 集成日志收集工具
+- [x] 分布式系统设计，使用Redis作为分布式锁、缓存各个文档的版本号、操作列表
+- [x] afterConnectionClosed的分布式化
+- [x] 分布式系统设计，使用RabbitMQ 传递消息、异步落库、延时重试
+- [x] 重试机制下的TTL指数退避延时队列
 - [ ] ai生成服务
-- [ ] 拆分成微服务
+- [ ] 解决在数据库里存文档的问题
 - [ ] 前端开发
 - [ ] 前端undo/redo 栈
-- [ ] 解决在数据库里存文档的问题
 - [ ] handler的sessionMap内存溢出风险 (OOM)
-- [ ] afterConnectionClosed的分布式化
-- [ ] 重试机制的指数退避机制
+- [ ] 集成日志收集工具
+- [ ] 性能监控：集成 Prometheus + Grafana
+- [ ] ai接口限流
+**todolist**
+- [ ] 需考虑使用RabbitMq的数据一致性
+- [ ] 考虑前后端消息丢失的问题 
+- [ ] 需要处理前端发来操作消息的幂等性
+
+```mermaid
+sequenceDiagram
+    participant U as 用户 (User)
+    participant NIC as 无线网卡 (Monitor Mode)
+    participant AP as 目标路由器 (Target AP)
+    participant ST as 客户端设备 (Station/Phone)
+    participant GPU as Hashcat (GPU 破解)
+
+    Note over U, NIC: 第一阶段：环境准备
+    U->>NIC: 开启监听模式 (airmon-ng start)
+    U->>NIC: 扫描附近 WiFi (airodump-ng)
+    NIC-->>U: 返回 BSSID 和 信道 (CH)
+
+    Note over U, AP: 第二阶段：抓取握手包
+    U->>NIC: 锁定信道并保存包 (airodump-ng -c X -w file)
+    U->>NIC: 发送反认证包 (aireplay-ng -0)
+    NIC->>ST: 强制断开连接
+    ST->>AP: 自动重新连接
+    Note right of ST: 关键时刻：四次握手 (4-Way Handshake)
+    AP-->>ST: 交换握手信息
+    NIC-->>U: 捕获并保存 [WPA Handshake] 到 .cap
+
+    Note over U, GPU: 第三阶段：转换与破解
+    U->>U: 转换格式 (hcxpcapngtool .cap -> .hc22000)
+    U->>GPU: 加载字典或掩码 (hashcat -m 22000)
+    GPU->>GPU: 利用 RX 470 并行计算哈希
+    alt 匹配成功
+        GPU-->>U: 输出密码 (Cracked!)
+    else 匹配失败
+        GPU-->>U: 任务结束 (Exhausted)
+    end
+```
+
 
 ### “为什么不用 RocketMQ？” 
 “在 Markweave 的选型中，优先考虑的是实时交互的低延迟。RabbitMQ 基于 Erlang 开发，在消息转发的时延上具有微秒级的优势，非常适合 OT 算法的操作流同步。此外，RabbitMQ 灵活的 Exchange 模型能通过 Fanout 模式轻松实现 WebSocket 集群的广播，而 RocketMQ 的设计初衷更多是解决海量吞吐和事务一致性，对于这种实时办公场景，RabbitMQ 的性价比和响应速度更高。”

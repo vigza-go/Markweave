@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
-import com.vigza.markweave.infrastructure.persistence.entity.Doc;
 
 @Service
 public class RedisService {
@@ -22,13 +21,15 @@ public class RedisService {
     private static final String DOC_VERSION_PREFIX = "doc:version:";
     private static final String DOC_TEXT_PREFIX = "doc:text:";
     private static final String DOC_HISTORY_PREFIX = "doc:history:";
+    private static final String DOC_CONNECTIONS_PREFIX = "doc:connections:";
 
     public Long getAndIncrementVersion(Long docId) {
         return redisTemplate.opsForValue().increment(DOC_VERSION_PREFIX + docId);
     }
 
     public Long getVersion(Long docId) {
-        return (Long) redisTemplate.opsForValue().get(DOC_VERSION_PREFIX + docId);
+        Object version = redisTemplate.opsForValue().get(DOC_VERSION_PREFIX + docId);
+        return version == null ? 0L : (Long) version;
     }
 
     public String getFullText(Long docId) {
@@ -68,6 +69,26 @@ public class RedisService {
         String verKey = DOC_VERSION_PREFIX + docId;
         String textKey = DOC_TEXT_PREFIX + docId;
         String histKey = DOC_HISTORY_PREFIX + docId;
-        redisTemplate.delete(Arrays.asList(verKey,textKey,histKey));
+        redisTemplate.delete(Arrays.asList(verKey, textKey, histKey));
+    }
+
+    public Long getDocConnections(Long docId) {
+        Object obj = redisTemplate.opsForValue().get(DOC_CONNECTIONS_PREFIX + docId);
+        if (obj == null) {
+            return 0L;
+        }
+        Long count = (Long) obj;
+        if (count < 0) {
+            redisTemplate.opsForValue().set(DOC_CONNECTIONS_PREFIX + docId, 0L);
+        }
+        redisTemplate.expire(DOC_CONNECTIONS_PREFIX + docId, expiration, TimeUnit.SECONDS);
+        return count;
+    }
+
+    public void incrementDocConnections(Long docId) {
+        redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId);
+    }
+    public void decrementDocConnections(Long docId){
+        redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId,-1);
     }
 }

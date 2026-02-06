@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.vigza.markweave.api.websocket.CollaborationHandler;
+import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
 
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -16,7 +17,7 @@ public class CollaborationMessageListener {
     @Autowired
     private CollaborationHandler collaborationHandler;
 
-    @RabbitListener(queues = "#{autoDeleteQueue.name}")
+    @RabbitListener(queues = RabbitMqConfig.COLLABORATION_MSG_QUEUE)
     public void onMessage(String messagePayload){
         try{
             JSONObject msg = new JSONUtil().parseObj(messagePayload);
