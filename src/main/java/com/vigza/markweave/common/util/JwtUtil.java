@@ -45,6 +45,9 @@ public class JwtUtil {
     }
 
     public boolean validateToken(String token){
+        if(token.startsWith(prefix)){
+            token = token.substring(prefix.length()).trim();
+        }
         try{
             JWT jwt = JWTUtil.parseToken(token);
             return jwt.setKey(secret.getBytes()).verify() && jwt.validate(0);
@@ -54,18 +57,27 @@ public class JwtUtil {
     }
 
     public User getUserFromToken(String token){
+        if(token.startsWith(prefix)){
+            token = token.substring(prefix.length()).trim();
+        }
         JWT jwt = JWTUtil.parseToken(token);
         Object userObject =  jwt.getPayload("user");
         return BeanUtil.toBean(userObject,User.class); 
     }
 
     public Long getDocIdFromInvToken(String invToken){
+        if(invToken.startsWith(prefix)){
+            invToken = invToken.substring(prefix.length()).trim();
+        }
         JWT jwt = JWTUtil.parseToken(invToken);
         Object docIdObject =  jwt.getPayload("docId");
         return BeanUtil.toBean(docIdObject, Long.class);
     }    
 
     public Integer getPermissionFromInvToken(String invToken){
+        if(invToken.startsWith(prefix)){
+            invToken = invToken.substring(prefix.length()).trim();
+        }
         JWT jwt = JWTUtil.parseToken(invToken);
         Object pObject = jwt.getPayload("permission");
         return BeanUtil.toBean(pObject,Integer.class);

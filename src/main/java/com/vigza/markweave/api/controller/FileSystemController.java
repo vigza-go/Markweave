@@ -122,4 +122,31 @@ public class FileSystemController {
             return Result.error(403, "校验不通过");
         }
     }
+
+    @GetMapping("/files/recycled/list")
+    Result<List<FsNodeVo>> getRecycledFiles(@RequestHeader("Authorization") String token) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.getRecycledFiles(token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/restore")
+    Result<?> restoreFile(@RequestHeader("Authorization") String token, @Valid @NotNull Long nodeId) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.restoreFile(nodeId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/delete/permanent")
+    Result<?> permanentlyDelete(@RequestHeader("Authorization") String token, @Valid @NotNull Long nodeId) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.permanentlyDelete(nodeId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
 }

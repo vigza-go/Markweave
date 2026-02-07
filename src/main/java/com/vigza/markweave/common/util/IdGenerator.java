@@ -9,8 +9,8 @@ public class IdGenerator {
     private static Snowflake snowflake;
     
     static {
-        long workerId = System.currentTimeMillis() % 2026; 
-        long datacenterId = System.currentTimeMillis() % 2026;
+        long workerId = System.currentTimeMillis() % 31; 
+        long datacenterId = System.currentTimeMillis() % 31;
         snowflake = IdUtil.getSnowflake(workerId, datacenterId);
     }
     

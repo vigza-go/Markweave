@@ -24,11 +24,11 @@
       </div>
       
       <nav class="nav-menu">
-        <a 
-          v-for="item in navItems" 
+        <a
+          v-for="item in navItems"
           :key="item.id"
           :class="['nav-item', { active: activeNav === item.id }]"
-          @click="activeNav = item.id"
+          @click="handleNavClick(item.id)"
         >
           <component :is="item.icon" class="nav-icon" />
           {{ item.label }}
@@ -77,14 +77,56 @@
             <span class="notification-badge">3</span>
           </button>
           
-          <div class="user-avatar">
-            <img :src="userAvatar" alt="用户头像" />
-          </div>
+          <el-dropdown trigger="click" @command="handleUserCommand">
+            <div class="user-avatar">
+              <img :src="userAvatar" alt="用户头像" />
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="profile">个人中心</el-dropdown-item>
+                <el-dropdown-item command="settings">设置</el-dropdown-item>
+                <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </header>
 
       <!-- 内容区域 -->
       <div class="content-area">
+        <FileManager ref="fileManager" :current-folder-id="currentFolderId" :trash-mode="trashMode" @refresh="refreshCurrent" />
+
+        <div v-if="breadcrumb.length > 0" class="breadcrumb">
+          <span
+            v-if="activeNav === 'cloud'"
+            class="breadcrumb-item"
+            @click="handleBackToCloud"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+            </svg>
+            我的云盘
+          </span>
+          <span
+            v-else-if="activeNav === 'share'"
+            class="breadcrumb-item"
+            @click="handleBackToShare"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+            </svg>
+            我的共享
+          </span>
+          <template v-for="(item, index) in breadcrumb" :key="item.id">
+            <span v-if="index > 0 || (activeNav !== 'cloud' && activeNav !== 'share')" class="breadcrumb-separator">/</span>
+            <span
+              :class="['breadcrumb-item', { active: index === breadcrumb.length - 1 }]"
+              @click="handleBreadcrumbClick(item.id)"
+            >{{ item.name }}</span>
+          </template>
+        </div>
+
         <div class="content-header">
           <div class="tabs">
             <button 
@@ -130,8 +172,7 @@
               <template #default="{ row }">
                 <div class="doc-name-cell">
                   <component :is="getFileIcon(row.type)" class="doc-icon" />
-                  <span class="doc-name">{{ row.name }}</span>
-                  <span v-if="row.starred" class="star-icon">⭐</span>
+                  <span class="doc-name">{{ row.name || row.docName || '-' }}</span>
                 </div>
               </template>
             </el-table-column>
@@ -139,21 +180,15 @@
             <el-table-column prop="owner" label="所有者" width="150">
               <template #default="{ row }">
                 <div class="owner-cell">
-                  <span class="owner-avatar">{{ row.owner.charAt(0) }}</span>
-                  <span>{{ row.owner }}</span>
+                  <span class="owner-avatar">{{ (row.owner || row.ownerName || 'U').charAt(0) }}</span>
+                  <span>{{ row.owner || row.ownerName || '-' }}</span>
                 </div>
               </template>
             </el-table-column>
             
-            <el-table-column prop="location" label="位置" width="150">
+            <el-table-column prop="owner" label="所有者" width="150">
               <template #default="{ row }">
-                <span class="location-tag">{{ row.location }}</span>
-              </template>
-            </el-table-column>
-            
-            <el-table-column prop="lastViewed" label="最近查看" width="180">
-              <template #default="{ row }">
-                {{ formatDate(row.lastViewed) }}
+                {{ formatDate(row.lastViewed || row.updateTime) }}
               </template>
             </el-table-column>
             
@@ -162,22 +197,50 @@
                 {{ formatFileSize(row.size) }}
               </template>
             </el-table-column>
-            
-            <el-table-column label="操作" width="100" align="center">
+
+            <el-table-column v-if="!trashMode" label="操作" width="150" align="center">
               <template #default="{ row }">
                 <div class="action-btns">
-                  <button class="action-btn" @click.stop="handleDownload(row)">
+                  <button class="action-btn" @click.stop="handleDownload(row)" title="下载">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                       <polyline points="7 10 12 15 17 10"/>
                       <line x1="12" y1="15" x2="12" y2="3"/>
                     </svg>
                   </button>
-                  <button class="action-btn" @click.stop="handleMore(row)">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <circle cx="12" cy="6" r="2"/>
-                      <circle cx="12" cy="12" r="2"/>
-                      <circle cx="12" cy="18" r="2"/>
+                  <el-dropdown trigger="click" @command="(command) => handleActionCommand(command, row)">
+                    <button class="action-btn" @click.stop>
+                      <svg viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="6" r="2"/>
+                        <circle cx="12" cy="12" r="2"/>
+                        <circle cx="12" cy="18" r="2"/>
+                      </svg>
+                    </button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="rename" :disabled="row.type == 1">重命名</el-dropdown-item>
+                        <el-dropdown-item command="move" :disabled="row.type == 1">移动</el-dropdown-item>
+                        <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </template>
+            </el-table-column>
+
+            <el-table-column v-else label="操作" width="120" align="center">
+              <template #default="{ row }">
+                <div class="action-btns">
+                  <button class="action-btn" @click.stop="handleRestore(row)" title="恢复">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                      <path d="M3 3v5h5"/>
+                    </svg>
+                  </button>
+                  <button class="action-btn delete-btn" @click.stop="handlePermanentDelete(row)" title="永久删除">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                     </svg>
                   </button>
                 </div>
@@ -192,17 +255,221 @@
 
 <script>
 import { ref, computed, onMounted, h, defineComponent } from 'vue';
-import { ElMessage } from 'element-plus';
+import { useRouter } from 'vue-router';
+import { ElMessage, ElMessageBox } from 'element-plus';
+import { fileSystemService, authService } from '@/services';
+import FileManager from '@/components/FileManager.vue';
+
+const folderIcon = defineComponent({
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#f59e0b', 'stroke-width': '2' }, [
+      h('path', { d: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z' })
+    ]);
+  }
+});
+
+const markdownIcon = defineComponent({
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#3b82f6', 'stroke-width': '2' }, [
+      h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
+      h('polyline', { points: '14 2 14 8 20 8' }),
+      h('line', { x1: '16', y1: '13', x2: '8', y2: '13' }),
+      h('line', { x1: '16', y1: '17', x2: '8', y2: '17' }),
+      h('polyline', { points: '10 9 9 9 8 9' })
+    ]);
+  }
+});
+
+const pdfIcon = defineComponent({
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#ef4444', 'stroke-width': '2' }, [
+      h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
+      h('polyline', { points: '14 2 14 8 20 8' }),
+      h('path', { d: 'M10 12h4' })
+    ]);
+  }
+});
+
+const wordIcon = defineComponent({
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#3b82f6', 'stroke-width': '2' }, [
+      h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
+      h('polyline', { points: '14 2 14 8 20 8' }),
+      h('line', { x1: '16', y1: '13', x2: '8', y2: '13' }),
+      h('line', { x1: '16', y1: '17', x2: '8', y2: '17' })
+    ]);
+  }
+});
+
+const excelIcon = defineComponent({
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#10b981', 'stroke-width': '2' }, [
+      h('rect', { x: '3', y: '3', width: '18', height: '18', rx: '2' }),
+      h('line', { x1: '3', y1: '9', x2: '21', y2: '9' }),
+      h('line', { x1: '3', y1: '15', x2: '21', y2: '15' }),
+      h('line', { x1: '9', y1: '3', x2: '9', y2: '21' }),
+      h('line', { x1: '15', y1: '3', x2: '15', y2: '21' })
+    ]);
+  }
+});
+
+const pptIcon = defineComponent({
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#f59e0b', 'stroke-width': '2' }, [
+      h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
+      h('polyline', { points: '14 2 14 8 20 8' }),
+      h('path', { d: 'M8 13h8' }),
+      h('path', { d: 'M8 17h8' })
+    ]);
+  }
+});
+
+const codeIcon = defineComponent({
+  render() {
+    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#8b5cf6', 'stroke-width': '2' }, [
+      h('polyline', { points: '16 18 22 12 16 6' }),
+      h('polyline', { points: '8 6 2 12 8 18' })
+    ]);
+  }
+});
+
+const fileIcons = {
+  1: folderIcon,
+  2: markdownIcon,
+  3: pdfIcon,
+  4: wordIcon,
+  5: excelIcon,
+  6: pptIcon,
+  7: codeIcon
+};
 
 export default {
   name: 'Dashboard',
+  components: {
+    FileManager
+  },
   setup() {
+    const router = useRouter();
     const searchQuery = ref('');
     const activeNav = ref('home');
     const activeTab = ref('recent');
     const usedStorage = ref(30054200);
     const totalStorage = 1073741824;
-    
+    const documents = ref([]);
+    const loading = ref(false);
+    const currentFolderId = ref(null);
+    const fileManager = ref(null);
+    const breadcrumb = ref([]);
+    const isInCloudDrive = ref(false);
+    const cloudDriveNodeId = ref(null);
+    const shareDriveNodeId = ref(null);
+    const trashMode = ref(false);
+
+    const getUserSpaceNodeId = () => {
+      const user = authService.getUser();
+      return user?.userSpaceNodeId || null;
+    };
+
+    const getUserShareSpaceNodeId = () => {
+      const user = authService.getUser();
+      return user?.userShareSpaceNodeId || null;
+    };
+
+    const findMyCloudFolder = async () => {
+      try {
+        const response = await fileSystemService.listFiles(0);
+        if (response.code === 200 && response.data) {
+          const cloudFolder = response.data.find(node =>
+            node.name === '我的云盘' && node.type == 1
+          );
+          if (cloudFolder) {
+            return cloudFolder.id;
+          }
+        }
+      } catch (error) {
+        console.error('查找云盘文件夹失败:', error);
+      }
+      return null;
+    };
+
+    const findMyShareFolder = async () => {
+      try {
+        const response = await fileSystemService.listFiles(0);
+        if (response.code === 200 && response.data) {
+          const shareFolder = response.data.find(node =>
+            node.name === '我的共享' && node.type == 1
+          );
+          if (shareFolder) {
+            return shareFolder.id;
+          }
+        }
+      } catch (error) {
+        console.error('查找共享文件夹失败:', error);
+      }
+      return null;
+    };
+
+    const handleNavClick = async (navId) => {
+      activeNav.value = navId;
+      trashMode.value = false;
+
+      if (navId === 'home') {
+        isInCloudDrive.value = false;
+        currentFolderId.value = 0;
+        loadRecentDocs();
+      } else if (navId === 'cloud') {
+        isInCloudDrive.value = true;
+        let spaceNodeId = getUserSpaceNodeId();
+        if (!spaceNodeId) {
+          spaceNodeId = await findMyCloudFolder();
+        }
+
+        if (!spaceNodeId) {
+          ElMessage.error('未找到云盘文件夹');
+          return;
+        }
+
+        cloudDriveNodeId.value = spaceNodeId;
+        currentFolderId.value = spaceNodeId;
+        loadFiles();
+      } else if (navId === 'share') {
+        isInCloudDrive.value = true;
+        let spaceNodeId = getUserShareSpaceNodeId();
+        if (!spaceNodeId) {
+          spaceNodeId = await findMyShareFolder();
+        }
+
+        if (!spaceNodeId) {
+          ElMessage.error('未找到共享文件夹');
+          return;
+        }
+
+        shareDriveNodeId.value = spaceNodeId;
+        currentFolderId.value = spaceNodeId;
+        loadFiles();
+      } else if (navId === 'trash') {
+        isInCloudDrive.value = false;
+        trashMode.value = true;
+        loadTrashFiles();
+      }
+    };
+
+    const loadTrashFiles = async () => {
+      loading.value = true;
+      try {
+        const response = await fileSystemService.getRecycledFiles();
+        if (response.code === 200) {
+          documents.value = response.data || [];
+        } else {
+          ElMessage.error(response.message || '加载回收站失败');
+        }
+      } catch (error) {
+        ElMessage.error('加载回收站失败: ' + (error.response?.data?.message || error.message));
+      } finally {
+        loading.value = false;
+      }
+    };
+
     const navItems = [
       { id: 'home', label: '首页', icon: defineComponent({
         render() {
@@ -212,10 +479,20 @@ export default {
           ]);
         }
       }) },
-      { id: 'cloud', label: '云盘', icon: defineComponent({
+      { id: 'cloud', label: '我的云盘', icon: defineComponent({
         render() {
           return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
             h('path', { d: 'M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z' })
+          ]);
+        }
+      }) },
+      { id: 'share', label: '我的共享', icon: defineComponent({
+        render() {
+          return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+            h('path', { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' }),
+            h('circle', { cx: '9', cy: '7', r: '4' }),
+            h('path', { d: 'M23 21v-2a4 4 0 0 0-3-3.87' }),
+            h('path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' })
           ]);
         }
       }) },
@@ -231,124 +508,52 @@ export default {
     
     const tabs = [
       { id: 'recent', label: '最近' },
-      { id: 'favorites', label: '收藏' }
+      { id: 'all', label: '全部' }
     ];
-    
-    const mockDocuments = ref([
-      { id: 1, name: '项目计划书.md', type: 'markdown', owner: '张三', location: '云盘', lastViewed: new Date('2024-01-15T10:30:00'), size: 24576, starred: true },
-      { id: 2, name: '技术架构文档.pdf', type: 'pdf', owner: '李四', location: '与我共享', lastViewed: new Date('2024-01-14T15:45:00'), size: 5242880, starred: false },
-      { id: 3, name: '需求分析报告.docx', type: 'word', owner: '王五', location: '云盘', lastViewed: new Date('2024-01-13T09:20:00'), size: 1048576, starred: true },
-      { id: 4, name: 'API接口文档.md', type: 'markdown', owner: '张三', location: '云盘', lastViewed: new Date('2024-01-12T14:10:00'), size: 49152, starred: false },
-      { id: 5, name: '用户手册.pdf', type: 'pdf', owner: '赵六', location: '与我共享', lastViewed: new Date('2024-01-11T11:30:00'), size: 2097152, starred: false },
-      { id: 6, name: '数据库设计.sql', type: 'code', owner: '李四', location: '云盘', lastViewed: new Date('2024-01-10T16:00:00'), size: 8192, starred: true },
-      { id: 7, name: '会议纪要.docx', type: 'word', owner: '张三', location: '云盘', lastViewed: new Date('2024-01-09T08:45:00'), size: 32768, starred: false },
-      { id: 8, name: '测试用例.xlsx', type: 'excel', owner: '王五', location: '云盘', lastViewed: new Date('2024-01-08T13:20:00'), size: 262144, starred: false },
-      { id: 9, name: '部署指南.md', type: 'markdown', owner: '赵六', location: '与我共享', lastViewed: new Date('2024-01-07T10:15:00'), size: 12288, starred: true },
-      { id: 10, name: '演示文稿.pptx', type: 'ppt', owner: '张三', location: '云盘', lastViewed: new Date('2024-01-06T15:50:00'), size: 8388608, starred: false }
-    ]);
     
     const storagePercentage = computed(() => Math.round((usedStorage.value / totalStorage) * 100));
     
     const filteredDocuments = computed(() => {
-      let docs = [...mockDocuments.value];
-      
-      if (activeTab.value === 'favorites') {
-        docs = docs.filter(doc => doc.starred);
-      }
+      let docs = [...documents.value];
       
       if (searchQuery.value) {
         const query = searchQuery.value.toLowerCase();
         docs = docs.filter(doc => 
           doc.name.toLowerCase().includes(query) ||
-          doc.owner.toLowerCase().includes(query)
+          (doc.ownerName && doc.ownerName.toLowerCase().includes(query))
         );
       }
       
-      return docs.sort((a, b) => new Date(b.lastViewed) - new Date(a.lastViewed));
+      return docs.sort((a, b) => new Date(b.updateTime) - new Date(a.updateTime));
     });
     
-    const userAvatar = ref('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23374151" width="100" height="100" rx="50"/><text x="50" y="65" font-size="40" fill="white" text-anchor="middle" font-family="system-ui">张</text></svg>');
+    const userAvatar = computed(() => {
+      const user = authService.getUser();
+      const initial = user?.nickname?.charAt(0) || user?.account?.charAt(0) || 'U';
+      return `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23374151" width="100" height="100" rx="50"/><text x="50" y="65" font-size="40" fill="white" text-anchor="middle" font-family="system-ui">${initial}</text></svg>`;
+    });
     
     const getFileIcon = (type) => {
-      const icons = {
-        markdown: defineComponent({
-          render() {
-            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#3b82f6', 'stroke-width': '2' }, [
-              h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
-              h('polyline', { points: '14 2 14 8 20 8' }),
-              h('line', { x1: '16', y1: '13', x2: '8', y2: '13' }),
-              h('line', { x1: '16', y1: '17', x2: '8', y2: '17' }),
-              h('polyline', { points: '10 9 9 9 8 9' })
-            ]);
-          }
-        }),
-        pdf: defineComponent({
-          render() {
-            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#ef4444', 'stroke-width': '2' }, [
-              h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
-              h('polyline', { points: '14 2 14 8 20 8' }),
-              h('path', { d: 'M10 12h4' })
-            ]);
-          }
-        }),
-        word: defineComponent({
-          render() {
-            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#3b82f6', 'stroke-width': '2' }, [
-              h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
-              h('polyline', { points: '14 2 14 8 20 8' }),
-              h('line', { x1: '16', y1: '13', x2: '8', y2: '13' }),
-              h('line', { x1: '16', y1: '17', x2: '8', y2: '17' })
-            ]);
-          }
-        }),
-        excel: defineComponent({
-          render() {
-            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#10b981', 'stroke-width': '2' }, [
-              h('rect', { x: '3', y: '3', width: '18', height: '18', rx: '2' }),
-              h('line', { x1: '3', y1: '9', x2: '21', y2: '9' }),
-              h('line', { x1: '3', y1: '15', x2: '21', y2: '15' }),
-              h('line', { x1: '9', y1: '3', x2: '9', y2: '21' }),
-              h('line', { x1: '15', y1: '3', x2: '15', y2: '21' })
-            ]);
-          }
-        }),
-        ppt: defineComponent({
-          render() {
-            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#f59e0b', 'stroke-width': '2' }, [
-              h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
-              h('polyline', { points: '14 2 14 8 20 8' }),
-              h('path', { d: 'M8 13h8' }),
-              h('path', { d: 'M8 17h8' })
-            ]);
-          }
-        }),
-        code: defineComponent({
-          render() {
-            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#8b5cf6', 'stroke-width': '2' }, [
-              h('polyline', { points: '16 18 22 12 16 6' }),
-              h('polyline', { points: '8 6 2 12 8 18' })
-            ]);
-          }
-        })
-      };
-      return icons[type] || icons.markdown;
-    };
-    
-    const formatSize = (bytes) => {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      return fileIcons[type] || markdownIcon;
     };
     
     const formatFileSize = (bytes) => {
+      if (!bytes) return '-';
       if (bytes < 1024) return bytes + ' B';
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
       return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     };
     
+    const formatSize = (bytes) => {
+      if (!bytes) return '0 B';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    };
+    
     const formatDate = (date) => {
+      if (!date) return '-';
       const d = new Date(date);
       const now = new Date();
       const diff = now - d;
@@ -367,27 +572,116 @@ export default {
     };
     
     const handleCreate = () => {
-      ElMessage.success('新建文档');
+      fileManager.value?.showCreateDialog();
     };
     
     const handleUpload = () => {
-      ElMessage.info('上传文件');
+      ElMessage.info('上传文件功能开发中');
     };
     
     const handleNotifications = () => {
-      ElMessage.info('通知中心');
+      ElMessage.info('通知中心开发中');
+    };
+    
+    const handleUserCommand = (command) => {
+      switch (command) {
+        case 'profile':
+          ElMessage.info('个人中心开发中');
+          break;
+        case 'settings':
+          ElMessage.info('设置开发中');
+          break;
+        case 'logout':
+          handleLogout();
+          break;
+      }
     };
     
     const handleFilterCommand = (command) => {
       ElMessage.info('筛选: ' + command);
     };
     
-    const handleRowClick = (row) => {
-      ElMessage.info('打开文档: ' + row.name);
+    const handleRowClick = async (row) => {
+      try {
+        if (trashMode.value) {
+          return;
+        }
+
+        await fileSystemService.updateViewTime(row.id);
+
+        if (row.type == 1) {
+          currentFolderId.value = row.id;
+          loadFiles();
+        } else if (activeNav.value === 'home' || activeNav.value === 'cloud' || activeNav.value === 'share') {
+          router.push(`/editor/${row.id}`);
+        }
+      } catch (error) {
+        ElMessage.error('操作失败: ' + (error.response?.data?.message || error.message));
+      }
     };
     
     const handleDownload = (row) => {
       ElMessage.success('下载: ' + row.name);
+    };
+
+    const handleRestore = async (row) => {
+      try {
+        const response = await fileSystemService.restoreFile(row.id);
+        if (response.code === 200) {
+          ElMessage.success('恢复成功');
+          loadTrashFiles();
+        } else {
+          ElMessage.error(response.message || '恢复失败');
+        }
+      } catch (error) {
+        ElMessage.error('恢复失败: ' + (error.response?.data?.message || error.message));
+      }
+    };
+
+    const handlePermanentDelete = async (row) => {
+      try {
+        await ElMessageBox.confirm('确定要永久删除该文件吗？此操作不可恢复！', '确认', {
+          confirmButtonText: '永久删除',
+          cancelButtonText: '取消',
+          type: 'warning'
+        });
+
+        const response = await fileSystemService.permanentlyDelete(row.id);
+        if (response.code === 200) {
+          ElMessage.success('已永久删除');
+          loadTrashFiles();
+        } else {
+          ElMessage.error(response.message || '删除失败');
+        }
+      } catch (error) {
+        if (error !== 'cancel') {
+          ElMessage.error('删除失败: ' + (error.response?.data?.message || error.message));
+        }
+      }
+    };
+
+    const refreshCurrent = () => {
+      if (trashMode.value) {
+        loadTrashFiles();
+      } else if (activeNav.value === 'cloud') {
+        loadFiles();
+      } else {
+        loadRecentDocs();
+      }
+    };
+    
+    const handleActionCommand = (command, row) => {
+      switch (command) {
+        case 'rename':
+          fileManager.value?.showRenameDialog(row);
+          break;
+        case 'move':
+          fileManager.value?.showMoveDialog(row);
+          break;
+        case 'delete':
+          fileManager.value?.handleDelete(row);
+          break;
+      }
     };
     
     const handleMore = (row) => {
@@ -398,6 +692,109 @@ export default {
       return '';
     };
     
+    const loadFiles = async () => {
+      loading.value = true;
+      try {
+        const response = await fileSystemService.listFiles(currentFolderId.value);
+        if (response.code === 200) {
+          documents.value = response.data || [];
+          loadBreadcrumb();
+        } else {
+          ElMessage.error(response.message || '加载失败');
+        }
+      } catch (error) {
+        ElMessage.error('加载失败: ' + (error.response?.data?.message || error.message));
+      } finally {
+        loading.value = false;
+      }
+    };
+
+    const loadBreadcrumb = () => {
+      if (activeNav.value === 'cloud' && cloudDriveNodeId.value) {
+        if (String(currentFolderId.value) !== String(cloudDriveNodeId.value)) {
+          breadcrumb.value = [
+            { id: cloudDriveNodeId.value, name: '我的云盘' },
+            { id: currentFolderId.value, name: documents.value.find(d => String(d.id) === String(currentFolderId.value))?.name || '当前文件夹' }
+          ];
+        } else {
+          breadcrumb.value = [
+            { id: cloudDriveNodeId.value, name: '我的云盘' }
+          ];
+        }
+      } else if (activeNav.value === 'share' && shareDriveNodeId.value) {
+        if (String(currentFolderId.value) !== String(shareDriveNodeId.value)) {
+          breadcrumb.value = [
+            { id: shareDriveNodeId.value, name: '我的共享' },
+            { id: currentFolderId.value, name: documents.value.find(d => String(d.id) === String(currentFolderId.value))?.name || '当前文件夹' }
+          ];
+        } else {
+          breadcrumb.value = [
+            { id: shareDriveNodeId.value, name: '我的共享' }
+          ];
+        }
+      } else {
+        breadcrumb.value = [];
+      }
+    };
+
+    const handleBreadcrumbClick = (folderId) => {
+      currentFolderId.value = folderId;
+      loadFiles();
+      loadBreadcrumb();
+    };
+
+    const handleBackToCloud = () => {
+      activeNav.value = 'cloud';
+      currentFolderId.value = cloudDriveNodeId.value;
+      loadFiles();
+      loadBreadcrumb();
+    };
+
+    const handleBackToShare = () => {
+      activeNav.value = 'share';
+      currentFolderId.value = shareDriveNodeId.value;
+      loadFiles();
+      loadBreadcrumb();
+    };
+    
+    const loadRecentDocs = async () => {
+      loading.value = true;
+      try {
+        const response = await fileSystemService.getRecentDocs();
+        if (response.code === 200) {
+          documents.value = (response.data || []).map(doc => ({
+            id: doc.docId,
+            name: doc.docName,
+            owner: doc.ownerName || '-',
+            ownerName: doc.ownerName,
+            type: 2,
+            size: doc.size || 0,
+            lastViewed: doc.lastViewTime,
+            updateTime: doc.lastViewTime
+          }));
+        } else {
+          ElMessage.error(response.message || '加载失败');
+        }
+      } catch (error) {
+        ElMessage.error('加载失败: ' + (error.response?.data?.message || error.message));
+      } finally {
+        loading.value = false;
+      }
+    };
+    
+    const handleLogout = async () => {
+      try {
+        await authService.logout();
+        authService.clearAuth();
+        ElMessage.success('已退出登录');
+        window.location.href = '/login';
+      } catch (error) {
+        console.error('Logout error:', error);
+        authService.clearAuth();
+        window.location.href = '/login';
+      }
+    };
+    
     onMounted(() => {
       document.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'f') {
@@ -405,6 +802,8 @@ export default {
           focusSearch(e);
         }
       });
+      
+      loadRecentDocs();
     });
     
     return {
@@ -418,19 +817,34 @@ export default {
       storagePercentage,
       filteredDocuments,
       userAvatar,
+      breadcrumb,
+      trashMode,
       getFileIcon,
-      formatSize,
       formatFileSize,
+      formatSize,
       formatDate,
       focusSearch,
       handleCreate,
       handleUpload,
       handleNotifications,
+      handleUserCommand,
       handleFilterCommand,
       handleRowClick,
       handleDownload,
+      handleRestore,
+      handlePermanentDelete,
+      handleNavClick,
+      handleBreadcrumbClick,
+      handleBackToCloud,
+      handleBackToShare,
+      handleActionCommand,
+      findMyCloudFolder,
+      findMyShareFolder,
       handleMore,
-      tableRowClassName
+      tableRowClassName,
+      loading,
+      fileManager,
+      handleLogout
     };
   }
 };
@@ -861,5 +1275,40 @@ export default {
 
 :deep(.el-progress-bar__outer) {
   background-color: #374151;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.breadcrumb-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.breadcrumb-item:hover {
+  color: #3b82f6;
+}
+
+.breadcrumb-item.active {
+  color: #f9fafb;
+  cursor: default;
+}
+
+.breadcrumb-separator {
+  color: #6b7280;
+}
+
+.delete-btn:hover {
+  background-color: #ef4444 !important;
+  color: white !important;
 }
 </style>

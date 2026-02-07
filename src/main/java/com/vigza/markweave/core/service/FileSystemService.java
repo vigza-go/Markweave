@@ -33,4 +33,10 @@ public interface FileSystemService {
 
     void initUserNodes(String token);
 
+    Result<List<FsNodeVo>> getRecycledFiles(String token);
+
+    Result<?> restoreFile(Long nodeId, String token);
+
+    Result<?> permanentlyDelete(Long nodeId, String token);
+
 }

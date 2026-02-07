@@ -284,6 +284,7 @@ public class FileSystemServiceImpl implements FileSystemService {
 
         List<FsNode> fsNodes = fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
                 .eq(FsNode::getUserId, userId)
+                .ne(FsNode::getType, Constants.FsNodeType.FOLDER)
                 .orderByDesc(FsNode::getLastViewTime)
                 .last("limit 50"));
         if (fsNodes == null)
@@ -342,7 +343,59 @@ public class FileSystemServiceImpl implements FileSystemService {
         .build();
         fsNodeMapper.insert(node);
         return Result.success(node);
-        
+
+    }
+
+    @Override
+    public Result<List<FsNodeVo>> getRecycledFiles(String token) {
+        User user = jwtUtil.getUserFromToken(token);
+        List<FsNode> recycledNodes = fsNodeMapper.selectRecycledFiles(user.getId());
+
+        List<FsNodeVo> result = recycledNodes.stream().map(node -> {
+            FsNodeVo vo = new FsNodeVo();
+            copyBaseProperties(node, vo);
+            return vo;
+        }).collect(Collectors.toList());
+
+        return Result.success(result);
+    }
+
+    @Override
+    public Result<?> restoreFile(Long nodeId, String token) {
+        // Result<?> preResult = getAccess(nodeId, token, true);
+        // if (!preResult.getCode().equals(200))
+        //     return preResult;
+
+        // FsNode node = (FsNode) preResult.getData();
+        // node.setRecycled(false);
+        // fsNodeMapper.updateById(node);
+
+        // if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
+        //     String pathPrefix = node.getPath() + "/";
+        //     String newPathPrefix = node.getPath().replaceFirst("/[^/]+$", "") + "/";
+        //     fsNodeMapper.update(null, new LambdaQueryWrapper<FsNode>()
+        //             .likeRight(FsNode::getPath, pathPrefix)
+        //             .set(FsNode::getRecycled, false));
+        // }
+
+        return Result.success();
+    }
+
+    @Override
+    public Result<?> permanentlyDelete(Long nodeId, String token) {
+        Result<?> preResult = getAccess(nodeId, token, true);
+        if (!preResult.getCode().equals(200))
+            return preResult;
+
+        FsNode node = (FsNode) preResult.getData();
+
+        if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
+            fsNodeMapper.delete(new LambdaQueryWrapper<FsNode>()
+                    .likeRight(FsNode::getPath, node.getPath() + "/"));
+        }
+        fsNodeMapper.deleteById(nodeId);
+
+        return Result.success();
     }
 
 }

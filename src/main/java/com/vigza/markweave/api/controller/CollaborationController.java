@@ -51,7 +51,7 @@ public class CollaborationController {
     }
 
 
-    @PostMapping("/permission}")
+    @PostMapping("/permission")
     public Result<?> updatePermission(@RequestHeader("Authorization") String token ,@Valid @RequestBody PermissionRequest request){
         Long docId = request.getDocId();
         Long targetUserId = request.getTargetUserId();

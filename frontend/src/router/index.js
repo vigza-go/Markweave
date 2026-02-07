@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import Login from '@/views/Login.vue';
 import Register from '@/views/Register.vue';
 import Dashboard from '@/views/Dashboard.vue';
+import Editor from '@/views/Editor.vue';
 
 const routes = [
   {
@@ -22,6 +23,12 @@ const routes = [
     path: '/dashboard',
     name: 'Dashboard',
     component: Dashboard,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/editor/:docId',
+    name: 'Editor',
+    component: Editor,
     meta: { requiresAuth: true }
   }
 ];

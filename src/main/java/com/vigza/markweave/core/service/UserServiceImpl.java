@@ -46,6 +46,8 @@ public class UserServiceImpl implements UserService {
                 .nickname(user.getNickName())
                 .headUrl(user.getHeadUrl())
                 .type(user.getType())
+                .userShareSpaceNodeId(user.getUserShareSpaceNodeId())
+                .userSpaceNodeId(user.getUserSpaceNodeId())
                 .build();
         return AuthResponse.builder().token(token).user(userDTO).build();
     }

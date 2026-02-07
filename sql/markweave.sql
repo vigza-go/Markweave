@@ -4,7 +4,7 @@ create table user (
   account varchar(32) not null ,
   password VARCHAR(128) not null,
   salt varchar(32) not null,
-  nickname varchar(32) not null,
+  nick_name varchar(32) not null,
   head_url varchar(100) ,
   create_time timestamp not null,
   user_space_node_id bigint comment '用户个人空间根节点id',
