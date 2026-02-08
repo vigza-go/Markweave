@@ -61,7 +61,6 @@ public class CollaborationServiceImpl implements CollaborationService {
                 .userId(userId)
                 .docId(docId)
                 .permission(permission)
-                .updateTime(LocalDateTime.now())
                 .build();
         collaborationMapper.insertOrUpdate(collaboration);
     }
@@ -197,7 +196,6 @@ public class CollaborationServiceImpl implements CollaborationService {
                 .userId(user.getId())
                 .docId(docId)
                 .permission(permission)
-                .updateTime(LocalDateTime.now())
                 .build();
         collaborationMapper.insert(collaboration);
         return Result.success();
@@ -209,9 +207,11 @@ public class CollaborationServiceImpl implements CollaborationService {
         String lockKey = "lock:doc:" + docId;
         RLock lock = redissonClient.getLock(lockKey);
         boolean isLocked = false;
+        log.info("processOp");
         try {
             isLocked = lock.tryLock(3, TimeUnit.SECONDS);
             if (isLocked) {
+                log.info("isLocked");
                 Long clientVer = clientMsg.getLong("version");
                 TextOperation clientOp = null;
                 Long currentVersion = redisService.getVersion(docId);
@@ -254,6 +254,7 @@ public class CollaborationServiceImpl implements CollaborationService {
                 redisService.setFullText(docId, fullText);
                 String response = JSONUtil.toJsonStr(clientMsg);
                 rabbitTemplate.convertAndSend(RabbitMqConfig.COLLABORATION_EXCHANGE, "", response);
+                log.info("send msg to collaboration exchange: {}", response);
             } else {
                 log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
                 Integer count = clientMsg.getInt("retryCount");
@@ -273,6 +274,7 @@ public class CollaborationServiceImpl implements CollaborationService {
             log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
         } finally {
             if (isLocked) {
+                log.info("unlock");
                 lock.unlock();
             }
         }

@@ -45,6 +45,9 @@ public class JwtUtil {
     }
 
     public boolean validateToken(String token){
+        if(token == null){
+            return false;
+        }
         if(token.startsWith(prefix)){
             token = token.substring(prefix.length()).trim();
         }

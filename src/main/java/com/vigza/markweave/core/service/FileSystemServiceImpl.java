@@ -286,6 +286,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         List<FsNode> fsNodes = fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
                 .eq(FsNode::getUserId, userId)
                 .ne(FsNode::getType, Constants.FsNodeType.FOLDER)
+                .eq(FsNode::getRecycled,false)
                 .orderByDesc(FsNode::getLastViewTime)
                 .last("limit 50"));
         if (fsNodes == null)

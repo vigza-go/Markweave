@@ -5,47 +5,38 @@
       <div class="sidebar-header">
         <h1 class="logo">MarkWeave</h1>
       </div>
-      
+
       <div class="sidebar-actions">
         <button class="btn-new" @click="handleCreate">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12h14"/>
+            <path d="M12 5v14M5 12h14" />
           </svg>
           新建
         </button>
         <button class="btn-upload" @click="handleUpload">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
           上传
         </button>
       </div>
-      
+
       <nav class="nav-menu">
-        <a
-          v-for="item in navItems"
-          :key="item.id"
-          :class="['nav-item', { active: activeNav === item.id }]"
-          @click="handleNavClick(item.id)"
-        >
+        <a v-for="item in navItems" :key="item.id" :class="['nav-item', { active: activeNav === item.id }]"
+          @click="handleNavClick(item.id)">
           <component :is="item.icon" class="nav-icon" />
           {{ item.label }}
         </a>
       </nav>
-      
+
       <div class="storage-info">
         <div class="storage-label">
           <span>存储空间</span>
           <span class="storage-value">{{ formatSize(usedStorage) }} / {{ formatSize(totalStorage) }}</span>
         </div>
-        <el-progress 
-          :percentage="storagePercentage" 
-          :stroke-width="6"
-          :show-text="false"
-          color="#3b82f6"
-        />
+        <el-progress :percentage="storagePercentage" :stroke-width="6" :show-text="false" color="#3b82f6" />
       </div>
     </aside>
 
@@ -55,28 +46,23 @@
       <header class="header">
         <div class="search-wrapper">
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/>
-            <path d="m21 21-4.35-4.35"/>
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
           </svg>
-          <input 
-            v-model="searchQuery"
-            type="text" 
-            class="search-input" 
-            placeholder="搜索文档..."
-            @keydown.ctrl.f="focusSearch"
-          />
+          <input v-model="searchQuery" type="text" class="search-input" placeholder="搜索文档..."
+            @keydown.ctrl.f="focusSearch" />
           <span class="shortcut-hint">Ctrl+F</span>
         </div>
-        
+
         <div class="header-actions">
           <button class="icon-btn" @click="handleNotifications">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
             </svg>
             <span class="notification-badge">3</span>
           </button>
-          
+
           <el-dropdown trigger="click" @command="handleUserCommand">
             <div class="user-avatar">
               <img :src="userAvatar" alt="用户头像" />
@@ -94,56 +80,44 @@
 
       <!-- 内容区域 -->
       <div class="content-area">
-        <FileManager ref="fileManager" :current-folder-id="currentFolderId" :trash-mode="trashMode" @refresh="refreshCurrent" />
+        <FileManager ref="fileManager" :current-folder-id="currentFolderId" :trash-mode="trashMode"
+          @refresh="refreshCurrent" />
 
         <div v-if="breadcrumb.length > 0" class="breadcrumb">
-          <span
-            v-if="activeNav === 'cloud'"
-            class="breadcrumb-item"
-            @click="handleBackToCloud"
-          >
+          <span v-if="activeNav === 'cloud'" class="breadcrumb-item" @click="handleBackToCloud">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
             </svg>
             我的云盘
           </span>
-          <span
-            v-else-if="activeNav === 'share'"
-            class="breadcrumb-item"
-            @click="handleBackToShare"
-          >
+          <span v-else-if="activeNav === 'share'" class="breadcrumb-item" @click="handleBackToShare">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
             </svg>
             我的共享
           </span>
           <template v-for="(item, index) in breadcrumb" :key="item.id">
-            <span v-if="index > 0 || (activeNav !== 'cloud' && activeNav !== 'share')" class="breadcrumb-separator">/</span>
-            <span
-              :class="['breadcrumb-item', { active: index === breadcrumb.length - 1 }]"
-              @click="handleBreadcrumbClick(item.id)"
-            >{{ item.name }}</span>
+            <span v-if="index > 0 || (activeNav !== 'cloud' && activeNav !== 'share')"
+              class="breadcrumb-separator">/</span>
+            <span :class="['breadcrumb-item', { active: index === breadcrumb.length - 1 }]"
+              @click="handleBreadcrumbClick(item.id)">{{ item.name }}</span>
           </template>
         </div>
 
         <div class="content-header">
           <div v-if="showTabs" class="tabs">
-            <button 
-              v-for="tab in availableTabs" 
-              :key="tab.id"
-              :class="['tab-btn', { active: activeTab === tab.id }]"
-              @click="activeTab = tab.id"
-            >
+            <button v-for="tab in availableTabs" :key="tab.id" :class="['tab-btn', { active: activeTab === tab.id }]"
+              @click="activeTab = tab.id">
               {{ tab.label }}
             </button>
           </div>
-          
+
           <div class="filter-section">
             <el-dropdown trigger="click" @command="handleFilterCommand">
               <button class="filter-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
                 </svg>
                 筛选
               </button>
@@ -161,13 +135,8 @@
 
         <!-- 文档表格 -->
         <div class="table-wrapper">
-          <el-table 
-            :data="filteredDocuments" 
-            style="width: 100%"
-            :row-class-name="tableRowClassName"
-            @row-click="handleRowClick"
-            highlight-current-row
-          >
+          <el-table :data="filteredDocuments" style="width: 100%" :row-class-name="tableRowClassName"
+            @row-click="handleRowClick" highlight-current-row>
             <el-table-column prop="name" label="名称" min-width="250">
               <template #default="{ row }">
                 <div class="doc-name-cell">
@@ -176,7 +145,7 @@
                 </div>
               </template>
             </el-table-column>
-            
+
             <el-table-column prop="owner" label="所有者" width="150">
               <template #default="{ row }">
                 <div class="owner-cell">
@@ -185,13 +154,13 @@
                 </div>
               </template>
             </el-table-column>
-            
+
             <el-table-column prop="updateTime" label="最近访问" width="180">
               <template #default="{ row }">
                 {{ formatDate(row.lastViewed || row.updateTime) }}
               </template>
             </el-table-column>
-            
+
             <el-table-column prop="size" label="文档大小" width="120">
               <template #default="{ row }">
                 {{ formatFileSize(row.size) }}
@@ -203,17 +172,17 @@
                 <div class="action-btns">
                   <button class="action-btn" @click.stop="handleDownload(row)" title="下载">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                      <polyline points="7 10 12 15 17 10"/>
-                      <line x1="12" y1="15" x2="12" y2="3"/>
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
                   </button>
                   <el-dropdown trigger="click" @command="(command) => handleActionCommand(command, row)">
                     <button class="action-btn" @click.stop>
                       <svg viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="12" cy="6" r="2"/>
-                        <circle cx="12" cy="12" r="2"/>
-                        <circle cx="12" cy="18" r="2"/>
+                        <circle cx="12" cy="6" r="2" />
+                        <circle cx="12" cy="12" r="2" />
+                        <circle cx="12" cy="18" r="2" />
                       </svg>
                     </button>
                     <template #dropdown>
@@ -234,14 +203,14 @@
                 <div class="action-btns">
                   <button class="action-btn" @click.stop="handleRestore(row)" title="恢复">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-                      <path d="M3 3v5h5"/>
+                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                      <path d="M3 3v5h5" />
                     </svg>
                   </button>
                   <button class="action-btn delete-btn" @click.stop="handlePermanentDelete(row)" title="永久删除">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <polyline points="3 6 5 6 21 6"/>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                     </svg>
                   </button>
                 </div>
@@ -281,67 +250,12 @@ const markdownIcon = defineComponent({
   }
 });
 
-const pdfIcon = defineComponent({
-  render() {
-    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#ef4444', 'stroke-width': '2' }, [
-      h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
-      h('polyline', { points: '14 2 14 8 20 8' }),
-      h('path', { d: 'M10 12h4' })
-    ]);
-  }
-});
 
-const wordIcon = defineComponent({
-  render() {
-    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#3b82f6', 'stroke-width': '2' }, [
-      h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
-      h('polyline', { points: '14 2 14 8 20 8' }),
-      h('line', { x1: '16', y1: '13', x2: '8', y2: '13' }),
-      h('line', { x1: '16', y1: '17', x2: '8', y2: '17' })
-    ]);
-  }
-});
-
-const excelIcon = defineComponent({
-  render() {
-    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#10b981', 'stroke-width': '2' }, [
-      h('rect', { x: '3', y: '3', width: '18', height: '18', rx: '2' }),
-      h('line', { x1: '3', y1: '9', x2: '21', y2: '9' }),
-      h('line', { x1: '3', y1: '15', x2: '21', y2: '15' }),
-      h('line', { x1: '9', y1: '3', x2: '9', y2: '21' }),
-      h('line', { x1: '15', y1: '3', x2: '15', y2: '21' })
-    ]);
-  }
-});
-
-const pptIcon = defineComponent({
-  render() {
-    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#f59e0b', 'stroke-width': '2' }, [
-      h('path', { d: 'M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z' }),
-      h('polyline', { points: '14 2 14 8 20 8' }),
-      h('path', { d: 'M8 13h8' }),
-      h('path', { d: 'M8 17h8' })
-    ]);
-  }
-});
-
-const codeIcon = defineComponent({
-  render() {
-    return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: '#8b5cf6', 'stroke-width': '2' }, [
-      h('polyline', { points: '16 18 22 12 16 6' }),
-      h('polyline', { points: '8 6 2 12 8 18' })
-    ]);
-  }
-});
 
 const fileIcons = {
-  1: folderIcon,
-  2: markdownIcon,
-  3: pdfIcon,
-  4: wordIcon,
-  5: excelIcon,
-  6: pptIcon,
-  7: codeIcon
+  1: markdownIcon,
+  2: folderIcon,
+  3: markdownIcon
 };
 
 export default {
@@ -475,41 +389,49 @@ export default {
     };
 
     const navItems = [
-      { id: 'home', label: '首页', icon: defineComponent({
-        render() {
-          return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
-            h('path', { d: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }),
-            h('polyline', { points: '9 22 9 12 15 12 15 22' })
-          ]);
-        }
-      }) },
-      { id: 'cloud', label: '我的云盘', icon: defineComponent({
-        render() {
-          return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
-            h('path', { d: 'M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z' })
-          ]);
-        }
-      }) },
-      { id: 'share', label: '我的共享', icon: defineComponent({
-        render() {
-          return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
-            h('path', { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' }),
-            h('circle', { cx: '9', cy: '7', r: '4' }),
-            h('path', { d: 'M23 21v-2a4 4 0 0 0-3-3.87' }),
-            h('path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' })
-          ]);
-        }
-      }) },
-      { id: 'trash', label: '回收站', icon: defineComponent({
-        render() {
-          return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
-            h('polyline', { points: '3 6 5 6 21 6' }),
-            h('path', { d: 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' })
-          ]);
-        }
-      }) }
+      {
+        id: 'home', label: '首页', icon: defineComponent({
+          render() {
+            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+              h('path', { d: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }),
+              h('polyline', { points: '9 22 9 12 15 12 15 22' })
+            ]);
+          }
+        })
+      },
+      {
+        id: 'cloud', label: '我的云盘', icon: defineComponent({
+          render() {
+            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+              h('path', { d: 'M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z' })
+            ]);
+          }
+        })
+      },
+      {
+        id: 'share', label: '我的共享', icon: defineComponent({
+          render() {
+            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+              h('path', { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' }),
+              h('circle', { cx: '9', cy: '7', r: '4' }),
+              h('path', { d: 'M23 21v-2a4 4 0 0 0-3-3.87' }),
+              h('path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' })
+            ]);
+          }
+        })
+      },
+      {
+        id: 'trash', label: '回收站', icon: defineComponent({
+          render() {
+            return h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+              h('polyline', { points: '3 6 5 6 21 6' }),
+              h('path', { d: 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' })
+            ]);
+          }
+        })
+      }
     ];
-    
+
     const tabs = [
       { id: 'recent', label: '最近' },
       { id: 'all', label: '全部' }
@@ -526,9 +448,9 @@ export default {
       }
       return tabs;
     });
-    
+
     const storagePercentage = computed(() => Math.round((usedStorage.value / totalStorage) * 100));
-    
+
     const filteredDocuments = computed(() => {
       let docs = [...documents.value];
 
@@ -550,24 +472,24 @@ export default {
 
       return docs.sort((a, b) => new Date(b.lastViewed || b.updateTime) - new Date(a.lastViewed || a.updateTime));
     });
-    
+
     const userAvatar = computed(() => {
       const user = authService.getUser();
       const initial = user?.nickname?.charAt(0) || user?.account?.charAt(0) || 'U';
       return `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23374151" width="100" height="100" rx="50"/><text x="50" y="65" font-size="40" fill="white" text-anchor="middle" font-family="system-ui">${initial}</text></svg>`;
     });
-    
+
     const getFileIcon = (type) => {
       return fileIcons[type] || markdownIcon;
     };
-    
+
     const formatFileSize = (bytes) => {
       if (!bytes) return '-';
       if (bytes < 1024) return bytes + ' B';
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
       return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
     };
-    
+
     const formatSize = (bytes) => {
       if (!bytes) return '0 B';
       if (bytes < 1024) return bytes + ' B';
@@ -575,38 +497,38 @@ export default {
       if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
       return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
     };
-    
+
     const formatDate = (date) => {
       if (!date) return '-';
       const d = new Date(date);
       const now = new Date();
       const diff = now - d;
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-      
+
       if (days === 0) return '今天 ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
       if (days === 1) return '昨天 ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
       if (days < 7) return days + '天前';
-      
+
       return d.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
     };
-    
+
     const focusSearch = (e) => {
       e.preventDefault();
       document.querySelector('.search-input')?.focus();
     };
-    
+
     const handleCreate = () => {
       fileManager.value?.showCreateDialog();
     };
-    
+
     const handleUpload = () => {
       ElMessage.info('上传文件功能开发中');
     };
-    
+
     const handleNotifications = () => {
       ElMessage.info('通知中心开发中');
     };
-    
+
     const handleUserCommand = (command) => {
       switch (command) {
         case 'profile':
@@ -620,11 +542,11 @@ export default {
           break;
       }
     };
-    
+
     const handleFilterCommand = (command) => {
       activeFilter.value = command;
     };
-    
+
     const handleRowClick = async (row) => {
       try {
         if (trashMode.value) {
@@ -634,17 +556,19 @@ export default {
         const viewNodeId = row.ptId || row.id;
         await fileSystemService.updateViewTime(viewNodeId);
 
-        if (row.type == 1) {
+        if (row.type === 2) { // 文件夹
           currentFolderId.value = row.id;
           loadFiles();
-        } else if (activeNav.value === 'home' || activeNav.value === 'cloud' || activeNav.value === 'share') {
+        } else if (row.type === 1) { // 文件
           router.push(`/editor/${row.docId || row.id}`);
+        } else if (row.type === 3) { // 快捷方式
+
         }
       } catch (error) {
         ElMessage.error('操作失败: ' + (error.response?.data?.message || error.message));
       }
     };
-    
+
     const handleDownload = (row) => {
       ElMessage.success('下载: ' + row.name);
     };
@@ -694,7 +618,7 @@ export default {
         loadRecentDocs();
       }
     };
-    
+
     const handleActionCommand = (command, row) => {
       switch (command) {
         case 'rename':
@@ -711,15 +635,15 @@ export default {
           break;
       }
     };
-    
+
     const handleMore = (row) => {
       ElMessage.info('更多操作: ' + row.name);
     };
-    
+
     const tableRowClassName = ({ row }) => {
       return '';
     };
-    
+
     const loadFiles = async () => {
       loading.value = true;
       try {
@@ -784,7 +708,7 @@ export default {
       loadFiles();
       loadBreadcrumb();
     };
-    
+
     const loadRecentDocs = async () => {
       loading.value = true;
       try {
@@ -795,7 +719,7 @@ export default {
             name: doc.docName,
             owner: doc.ownerName || '-',
             ownerName: doc.ownerName,
-            type: 2,
+            type: 1,
             size: doc.size || 0,
             lastViewed: doc.lastViewTime,
             updateTime: doc.lastViewTime
@@ -809,7 +733,7 @@ export default {
         loading.value = false;
       }
     };
-    
+
     const handleLogout = async () => {
       try {
         await authService.logout();
@@ -822,7 +746,7 @@ export default {
         window.location.href = '/login';
       }
     };
-    
+
     const keydownHandler = (e) => {
       if (e.ctrlKey && e.key === 'f') {
         e.preventDefault();
@@ -838,7 +762,7 @@ export default {
     onUnmounted(() => {
       document.removeEventListener('keydown', keydownHandler);
     });
-    
+
     return {
       searchQuery,
       activeNav,

@@ -60,7 +60,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
 
     @Override
     public void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-
+        log.info("Received message: {} from session: {}", message.getPayload(), session.getId());
         JSONObject clientMsg = JSONUtil.parseObj(message.getPayload());
         Long docId = clientMsg.getLong("docId");
         String token = (String) session.getAttributes().get("token");
@@ -152,9 +152,9 @@ public class CollaborationHandler extends TextWebSocketHandler {
                 try {
                     String clientId = (String) session.getAttributes().get("clientId");
                     // 不要发给自己
-                    if (!clientId.equals(senderClientId)) {
+                    // if (!clientId.equals(senderClientId)) {
                         safeSend(session, new TextMessage(messagePayload));
-                    }
+                    // }
                 } catch (Exception e) {
                     log.error("广播消息到本地session失败，sessionId：{}", session.getId(), e);
                 }

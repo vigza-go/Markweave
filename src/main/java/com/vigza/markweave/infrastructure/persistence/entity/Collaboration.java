@@ -21,5 +21,4 @@ public class Collaboration {
   private Long userId;
   private Long docId;
   private Integer permission;
-  private LocalDateTime updateTime;
 }

@@ -20,6 +20,7 @@ public class CollaborationMessageListener {
     @RabbitListener(queues = RabbitMqConfig.COLLABORATION_MSG_QUEUE)
     public void onMessage(String messagePayload){
         try{
+            log.info("Received collaboration message: {}", messagePayload);
             JSONObject msg = new JSONUtil().parseObj(messagePayload);
             Long docId = msg.getLong("docId"); 
             String senderClientId = msg.getStr("clientId");

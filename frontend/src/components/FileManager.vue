@@ -5,12 +5,7 @@
         <el-form-item label="名称">
           <el-input v-model="createForm.fileName" placeholder="请输入文档名称" />
         </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="createForm.fileType" placeholder="选择文档类型">
-            <el-option label="Markdown文档" :value="2" />
-            <el-option label="文本文档" :value="8" />
-          </el-select>
-        </el-form-item>
+        
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
@@ -124,7 +119,7 @@ const folderTree = ref([]);
 
 const showCreateDialog = () => {
   createForm.fileName = '';
-  createForm.fileType = 2;
+  createForm.fileType = 1;
   createDialogVisible.value = true;
 };
 

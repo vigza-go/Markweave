@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
-
 @Service
 public class RedisService {
 
@@ -29,7 +28,7 @@ public class RedisService {
 
     public Long getVersion(Long docId) {
         Object version = redisTemplate.opsForValue().get(DOC_VERSION_PREFIX + docId);
-        return version == null ? 0L : (Long) version;
+        return version == null ? 0L : ((Number) version).longValue();
     }
 
     public String getFullText(Long docId) {
@@ -77,7 +76,7 @@ public class RedisService {
         if (obj == null) {
             return 0L;
         }
-        Long count = (Long) obj;
+        Long count = ((Number) obj).longValue();
         if (count < 0) {
             redisTemplate.opsForValue().set(DOC_CONNECTIONS_PREFIX + docId, 0L);
         }
@@ -88,7 +87,8 @@ public class RedisService {
     public void incrementDocConnections(Long docId) {
         redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId);
     }
-    public void decrementDocConnections(Long docId){
-        redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId,-1);
+
+    public void decrementDocConnections(Long docId) {
+        redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId, -1);
     }
 }

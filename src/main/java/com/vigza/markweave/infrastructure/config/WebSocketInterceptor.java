@@ -30,26 +30,39 @@ public class WebSocketInterceptor implements HandshakeInterceptor {
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHander,
             Map<String, Object> attributes) throws Exception {
-        if (request instanceof ServletServerHttpRequest) {
-            ServletServerHttpRequest servletRequest = (ServletServerHttpRequest) request;
-            HttpServletRequest req = servletRequest.getServletRequest();
-
-            String token = req.getHeader("Authorization");
-            String clientId = req.getHeader("clientId");
-            if (jwtUtil.validateToken(token)) {
-                Long userId = jwtUtil.getUserFromToken(token).getId();
-                if (userId == null) {
-                    return false;
+        String token = null;
+        String clientId = null;
+        
+        
+        if ((token == null || token.isEmpty()) && request.getURI() != null) {
+            String query = request.getURI().getQuery();
+            if (query != null) {
+                String[] params = query.split("&");
+                for (String param : params) {
+                    String[] keyValue = param.split("=");
+                    if (keyValue.length == 2) {
+                        if ("token".equals(keyValue[0])) {
+                            token = java.net.URLDecoder.decode(keyValue[1], "UTF-8");
+                        } else if ("clientId".equals(keyValue[0])) {
+                            clientId = java.net.URLDecoder.decode(keyValue[1], "UTF-8");
+                        }
+                    }
                 }
-                attributes.put("userId", userId);
-                attributes.put("token", token);
-                attributes.put("clientId", clientId);
-            } else
+            }
+        }
+        
+        if (token != null && jwtUtil.validateToken(token)) {
+            Long userId = jwtUtil.getUserFromToken(token).getId();
+            if (userId == null) {
                 return false;
-
+            }
+            attributes.put("userId", userId);
+            attributes.put("token", token);
+            attributes.put("clientId", clientId);
+            return true;
         }
 
-        return true;
+        return false;
     }
 
     @Override
