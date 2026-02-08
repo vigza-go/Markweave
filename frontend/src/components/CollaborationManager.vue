@@ -60,7 +60,7 @@
 
 <script setup>
 import { ref, reactive } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { collaborationService } from '@/services';
 
 const emit = defineEmits(['refresh']);

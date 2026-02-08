@@ -7,12 +7,20 @@
       </div>
 
       <div class="sidebar-actions">
-        <button class="btn-new" @click="handleCreate">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          新建
-        </button>
+        <el-dropdown trigger="click" @command="handleCreateCommand" class="create-dropdown">
+          <button class="btn-new" type="button">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            新建
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="new-file">新建 Markdown 文档</el-dropdown-item>
+              <el-dropdown-item command="new-folder">新建文件夹</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <button class="btn-upload" @click="handleUpload">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -126,7 +134,8 @@
                   <el-dropdown-item command="all">全部时间</el-dropdown-item>
                   <el-dropdown-item command="week">近七天</el-dropdown-item>
                   <el-dropdown-item command="month">近一个月</el-dropdown-item>
-                  <el-dropdown-item divided command="owner">按所有者筛选</el-dropdown-item>
+                  <el-dropdown-item divided command="owner-me">仅看我的文件</el-dropdown-item>
+                  <el-dropdown-item command="owner-other">仅看他人共享</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -141,7 +150,8 @@
               <template #default="{ row }">
                 <div class="doc-name-cell">
                   <component :is="getFileIcon(row.type)" class="doc-icon" />
-                  <span class="doc-name">{{ row.name || row.docName || '-' }}</span>
+                  <a class="doc-name doc-link" href="#" @click.stop.prevent="openDocument(row, false)">{{ row.name || row.docName || '-' }}</a>
+                  <button v-if="isFile(row)" class="open-tab-btn" @click.stop="openDocument(row, true)">新标签</button>
                 </div>
               </template>
             </el-table-column>
@@ -187,9 +197,9 @@
                     </button>
                     <template #dropdown>
                       <el-dropdown-menu>
-                        <el-dropdown-item command="rename" :disabled="row.type == 1">重命名</el-dropdown-item>
-                        <el-dropdown-item command="move" :disabled="row.type == 1">移动</el-dropdown-item>
-                        <el-dropdown-item command="shortcut" :disabled="row.type == 1">创建快捷方式</el-dropdown-item>
+                        <el-dropdown-item command="rename" >重命名</el-dropdown-item>
+                        <el-dropdown-item command="move" >移动</el-dropdown-item>
+                        <el-dropdown-item command="shortcut" >创建快捷方式</el-dropdown-item>
                         <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -229,6 +239,7 @@ import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { fileSystemService, authService } from '@/services';
 import FileManager from '@/components/FileManager.vue';
+import { FS_NODE_TYPE, isFile, isFolder, isShortcut } from '@/constants/fsNode';
 
 const folderIcon = defineComponent({
   render() {
@@ -253,9 +264,9 @@ const markdownIcon = defineComponent({
 
 
 const fileIcons = {
-  1: markdownIcon,
-  2: folderIcon,
-  3: markdownIcon
+  [FS_NODE_TYPE.FILE]: markdownIcon,
+  [FS_NODE_TYPE.FOLDER]: folderIcon,
+  [FS_NODE_TYPE.SHORTCUT]: markdownIcon
 };
 
 export default {
@@ -291,39 +302,23 @@ export default {
       return user?.userShareSpaceNodeId || null;
     };
 
-    const findMyCloudFolder = async () => {
+
+    const findNamedRootFolder = async (folderName) => {
       try {
         const response = await fileSystemService.listFiles(0);
         if (response.code === 200 && response.data) {
-          const cloudFolder = response.data.find(node =>
-            node.name === '我的云盘' && node.type == 1
-          );
-          if (cloudFolder) {
-            return cloudFolder.id;
-          }
+          const folder = response.data.find(node => node.name === folderName && isFolder(node));
+          if (folder) return folder.id;
         }
       } catch (error) {
-        console.error('查找云盘文件夹失败:', error);
+        console.error(`查找${folderName}失败:`, error);
       }
       return null;
     };
 
-    const findMyShareFolder = async () => {
-      try {
-        const response = await fileSystemService.listFiles(0);
-        if (response.code === 200 && response.data) {
-          const shareFolder = response.data.find(node =>
-            node.name === '我的共享' && node.type == 1
-          );
-          if (shareFolder) {
-            return shareFolder.id;
-          }
-        }
-      } catch (error) {
-        console.error('查找共享文件夹失败:', error);
-      }
-      return null;
-    };
+    const findMyCloudFolder = async () => findNamedRootFolder('我的云盘');
+
+    const findMyShareFolder = async () => findNamedRootFolder('我的共享');
 
     const handleNavClick = async (navId) => {
       activeNav.value = navId;
@@ -462,6 +457,24 @@ export default {
         docs = docs.filter(doc => now - new Date(doc.lastViewed || doc.updateTime).getTime() <= 30 * 24 * 60 * 60 * 1000);
       }
 
+      if (activeFilter.value === 'owner-me') {
+        const currentUser = authService.getUser();
+        const nickname = currentUser?.nickname;
+        const account = currentUser?.account;
+        docs = docs.filter(doc => {
+          const ownerName = doc.owner || doc.ownerName || '';
+          return ownerName && (ownerName === nickname || ownerName === account);
+        });
+      } else if (activeFilter.value === 'owner-other') {
+        const currentUser = authService.getUser();
+        const nickname = currentUser?.nickname;
+        const account = currentUser?.account;
+        docs = docs.filter(doc => {
+          const ownerName = doc.owner || doc.ownerName || '';
+          return ownerName && ownerName !== nickname && ownerName !== account;
+        });
+      }
+
       if (searchQuery.value) {
         const query = searchQuery.value.toLowerCase();
         docs = docs.filter(doc =>
@@ -518,7 +531,15 @@ export default {
     };
 
     const handleCreate = () => {
-      fileManager.value?.showCreateDialog();
+      fileManager.value?.showCreateDialog(FS_NODE_TYPE.FILE);
+    };
+
+    const handleCreateCommand = (command) => {
+      if (command === "new-folder") {
+        fileManager.value?.showCreateDialog(FS_NODE_TYPE.FOLDER);
+      } else {
+        fileManager.value?.showCreateDialog(FS_NODE_TYPE.FILE);
+      }
     };
 
     const handleUpload = () => {
@@ -547,7 +568,16 @@ export default {
       activeFilter.value = command;
     };
 
-    const handleRowClick = async (row) => {
+    const openDocument = (row, inNewTab = false) => {
+      const targetUrl = router.resolve(`/editor/${row.docId || row.id}`).href;
+      if (inNewTab) {
+        window.open(targetUrl, '_blank');
+      } else {
+        router.push(targetUrl);
+      }
+    };
+
+    const handleRowClick = async (row, _column, event) => {
       try {
         if (trashMode.value) {
           return;
@@ -556,12 +586,12 @@ export default {
         const viewNodeId = row.ptId || row.id;
         await fileSystemService.updateViewTime(viewNodeId);
 
-        if (row.type === 2) { // 文件夹
+        if (isFolder(row)) { // 文件夹
           currentFolderId.value = row.id;
           loadFiles();
-        } else if (row.type === 1) { // 文件
-          router.push(`/editor/${row.docId || row.id}`);
-        } else if (row.type === 3) { // 快捷方式
+        } else if (isFile(row)) { // 文件
+          openDocument(row, Boolean(event?.ctrlKey || event?.metaKey));
+        } else if (isShortcut(row)) { // 快捷方式
 
         }
       } catch (error) {
@@ -719,7 +749,7 @@ export default {
             name: doc.docName,
             owner: doc.ownerName || '-',
             ownerName: doc.ownerName,
-            type: 1,
+            type: FS_NODE_TYPE.FILE,
             size: doc.size || 0,
             lastViewed: doc.lastViewTime,
             updateTime: doc.lastViewTime
@@ -783,6 +813,8 @@ export default {
       formatDate,
       focusSearch,
       handleCreate,
+      handleCreateCommand,
+      openDocument,
       handleUpload,
       handleNotifications,
       handleUserCommand,
@@ -798,6 +830,7 @@ export default {
       handleActionCommand,
       findMyCloudFolder,
       findMyShareFolder,
+      isFile,
       handleMore,
       tableRowClassName,
       loading,
@@ -844,6 +877,8 @@ export default {
   gap: 10px;
   margin-bottom: 24px;
 }
+
+.create-dropdown { width: 100%; }
 
 .btn-new,
 .btn-upload {
@@ -1269,4 +1304,10 @@ export default {
   background-color: #ef4444 !important;
   color: white !important;
 }
+
+.doc-link { color: inherit; text-decoration: none; }
+.open-tab-btn { margin-left: 8px; background: transparent; border: 1px solid #4b5563; color: #9ca3af; border-radius: 4px; font-size: 12px; padding: 1px 6px; cursor: pointer; }
+.open-tab-btn:hover { color: #fff; border-color: #6b7280; }
 </style>
+
+

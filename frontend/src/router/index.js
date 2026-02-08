@@ -3,6 +3,7 @@ import Login from '@/views/Login.vue';
 import Register from '@/views/Register.vue';
 import Dashboard from '@/views/Dashboard.vue';
 import Editor from '@/views/Editor.vue';
+import InviteAccept from '@/views/InviteAccept.vue';
 
 const routes = [
   {
@@ -29,6 +30,12 @@ const routes = [
     path: '/editor/:docId',
     name: 'Editor',
     component: Editor,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/invite/:token',
+    name: 'InviteAccept',
+    component: InviteAccept,
     meta: { requiresAuth: true }
   }
 ];

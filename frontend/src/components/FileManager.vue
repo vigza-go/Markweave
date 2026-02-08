@@ -1,11 +1,15 @@
 <template>
   <div class="file-manager">
-    <el-dialog v-if="!trashMode" v-model="createDialogVisible" title="新建文档" width="400px">
+    <el-dialog v-if="!trashMode" v-model="createDialogVisible" title="新建" width="420px">
       <el-form :model="createForm" label-width="80px">
         <el-form-item label="名称">
-          <el-input v-model="createForm.fileName" placeholder="请输入文档名称" />
+          <el-input v-model="createForm.fileName" placeholder="请输入名称" />
         </el-form-item>
-        
+        <el-form-item label="类型">
+          <el-select v-model="createForm.fileType" style="width: 100%">
+            <el-option v-for="option in FILE_TYPE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
@@ -26,14 +30,9 @@
     </el-dialog>
 
     <el-dialog v-if="!trashMode" v-model="moveDialogVisible" title="移动" width="400px">
-      <el-tree
-        :data="folderTree"
-        :props="{ label: 'name', children: 'children' }"
-        default-expand-all
-        highlight-current
-        @node-click="handleFolderSelect"
-      >
-        <template #default="{ node, data }">
+      <el-tree :data="folderTree" :props="{ label: 'name', children: 'children' }" default-expand-all highlight-current
+        @node-click="handleFolderSelect">
+        <template #default="{ node }">
           <span class="folder-node">
             <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" width="16" height="16">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -50,13 +49,8 @@
 
     <el-dialog v-if="!trashMode" v-model="shortcutDialogVisible" title="创建快捷方式" width="420px">
       <p class="dialog-desc">将为 <strong>{{ shortcutForm.sourceName }}</strong> 创建快捷方式到所选文件夹。</p>
-      <el-tree
-        :data="folderTree"
-        :props="{ label: 'name', children: 'children' }"
-        default-expand-all
-        highlight-current
-        @node-click="handleShortcutFolderSelect"
-      />
+      <el-tree :data="folderTree" :props="{ label: 'name', children: 'children' }" default-expand-all highlight-current
+        @node-click="handleShortcutFolderSelect" />
       <template #footer>
         <el-button @click="shortcutDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleCreateShortcut" :loading="shortcutting">确定</el-button>
@@ -70,6 +64,7 @@
 import { ref, reactive } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { fileSystemService } from '@/services';
+import { FILE_TYPE_OPTIONS, FS_NODE_TYPE, isFolder } from '@/constants/fsNode';
 
 const emit = defineEmits(['refresh']);
 
@@ -96,7 +91,7 @@ const shortcutting = ref(false);
 
 const createForm = reactive({
   fileName: '',
-  fileType: 2
+  fileType: FS_NODE_TYPE.FILE
 });
 
 const renameForm = reactive({
@@ -117,9 +112,9 @@ const shortcutForm = reactive({
 
 const folderTree = ref([]);
 
-const showCreateDialog = () => {
+const showCreateDialog = (defaultType = FS_NODE_TYPE.FILE) => {
   createForm.fileName = '';
-  createForm.fileType = 1;
+  createForm.fileType = defaultType;
   createDialogVisible.value = true;
 };
 
@@ -168,7 +163,7 @@ const showShortcutDialog = async (node) => {
 };
 
 const buildFolderTree = (nodes) => {
-  const folders = nodes.filter(n => n.type == 1);
+  const folders = nodes.filter(isFolder);
   return folders.map(folder => ({
     id: folder.id,
     name: folder.name,
@@ -191,13 +186,13 @@ const getUserSpaceNodeId = () => {
 
 const handleCreate = async () => {
   if (!createForm.fileName.trim()) {
-    ElMessage.warning('请输入文档名称');
+    ElMessage.warning('请输入名称');
     return;
   }
 
   creating.value = true;
   try {
-    const faId = getUserSpaceNodeId();
+    const faId = props.currentFolderId ?? getUserSpaceNodeId();
     const response = await fileSystemService.createFile(
       createForm.fileName,
       faId,
@@ -205,7 +200,7 @@ const handleCreate = async () => {
     );
 
     if (response.code === 200) {
-      ElMessage.success('创建成功');
+      ElMessage.success(createForm.fileType === FS_NODE_TYPE.FOLDER ? '文件夹创建成功' : '文档创建成功');
       createDialogVisible.value = false;
       emit('refresh');
     } else {
@@ -227,7 +222,7 @@ const handleRename = async () => {
   renaming.value = true;
   try {
     const response = await fileSystemService.rename(renameForm.nodeId, renameForm.newName);
-    
+
     if (response.code === 200) {
       ElMessage.success('重命名成功');
       renameDialogVisible.value = false;
@@ -251,7 +246,7 @@ const handleMove = async () => {
   moving.value = true;
   try {
     const response = await fileSystemService.move(moveForm.nodeId, moveForm.targetFolderId);
-    
+
     if (response.code === 200) {
       ElMessage.success('移动成功');
       moveDialogVisible.value = false;
@@ -296,9 +291,9 @@ const handleDelete = async (node) => {
       cancelButtonText: '取消',
       type: 'warning'
     });
-    
+
     const response = await fileSystemService.recycle(node.id);
-    
+
     if (response.code === 200) {
       ElMessage.success('已移到回收站');
       emit('refresh');
@@ -320,16 +315,3 @@ defineExpose({
   handleDelete
 });
 </script>
-
-<style scoped>
-.folder-node {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dialog-desc {
-  margin: 0 0 12px;
-  color: #6b7280;
-}
-</style>

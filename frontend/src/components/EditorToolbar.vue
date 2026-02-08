@@ -165,8 +165,8 @@ const handleExportCommand = (command) => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  background-color: #1e1e1e;
-  border-bottom: 1px solid #333;
+  background-color: #fafafa;
+  border-bottom: 1px solid #dcdfe6;
 }
 
 .toolbar-left,
@@ -180,4 +180,9 @@ const handleExportCommand = (command) => {
   height: 20px;
   margin: 0 8px;
 }
+
+:deep(.el-button) { border-color: #d1d5db; color: #374151; background: #fff; }
+:deep(.el-button:hover) { background: #f3f4f6; color: #111827; }
 </style>
+
+

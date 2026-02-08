@@ -92,7 +92,11 @@ export default {
     }
   },
   methods: {
-    
+    checkAccount() {
+      // 后端暂无账号可用性检查接口，保留为前端扩展点
+      this.accountExists = false;
+    },
+
     async handleRegister() {
       if (this.passwordMismatch) {
         this.error = '两次输入的密码不一致';
