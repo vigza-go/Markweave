@@ -49,7 +49,7 @@ public class FileSystemServiceImpl implements FileSystemService {
     private JwtUtil jwtUtil;
 
     @Autowired
-    private  RedisService redisService;
+    private RedisService redisService;
 
     @PostConstruct
     public void init() {
@@ -71,17 +71,22 @@ public class FileSystemServiceImpl implements FileSystemService {
     @Override
     public void initUserNodes(String token) {
         User user = jwtUtil.getUserFromToken(token);
-        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(), 0L, Constants.FsNodeType.FOLDER, token)
+        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(), 0L, Constants.FsNodeType.FOLDER, token,false)
                 .getData();
         Long faId = faNode.getId();
-        createNode("我的共享", user.getUserShareSpaceNodeId(), faId, Constants.FsNodeType.FOLDER, token);
+        createNode("我的共享", user.getUserShareSpaceNodeId(), faId, Constants.FsNodeType.FOLDER, token,false);
+    }
+
+    @Override
+    public Result<FsNode> createNode(String fileName, Long nodeId, Long faId, Integer fileType, String token) {
+        return createNode(fileName, nodeId, faId, fileType, token, true);
     }
 
     // 记得参数校验filename不 能包含特殊字符
     @Transactional
-    @Override
-    public Result<FsNode> createNode(String fileName, Long nodeId, Long faId, Integer fileType, String token) {
-        Result<FsNode> preResult = getAccess(faId, token, false);
+    public Result<FsNode> createNode(String fileName, Long nodeId, Long faId, Integer fileType, String token,
+            boolean strict) {
+        Result<FsNode> preResult = getAccess(faId, token, strict);
         if (!preResult.getCode().equals(200))
             return preResult;
         if (fileName == null || fileName.isEmpty()) {
@@ -413,9 +418,9 @@ public class FileSystemServiceImpl implements FileSystemService {
     @Override
     public String getDocContent(Long docId) {
         String content = redisService.getFullText(docId);
-        if(content == null){
+        if (content == null) {
             content = docMapper.selectById(docId).getContent();
-            if(content == null){
+            if (content == null) {
                 content = "";
             }
             redisService.setFullText(docId, content);

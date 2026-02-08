@@ -882,6 +882,7 @@ export default {
 
 .btn-new,
 .btn-upload {
+  width: 100%; /* 新增这一行 */
   display: flex;
   align-items: center;
   justify-content: center;

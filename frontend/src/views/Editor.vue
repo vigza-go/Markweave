@@ -17,19 +17,21 @@ import 'katex/dist/katex.min.css'
 import 'highlight.js/styles/github.css' // 代码高亮主题
 import 'github-markdown-css/github-markdown-light.css'
 import EditorToolbar from '@/components/EditorToolbar.vue' // 工具栏组件
+// --- 渲染逻辑控制 ---
 const debouncedRender = debounce(async () => {
   if (!editorInstance.value) return;
   const val = editorInstance.value.getModel().getValue();
 
-  // 第一步：更新预览数据
+  // 1. Markdown 转换为 HTML 字符串
   previewHtml.value = md.render(val);
 
-  // 第二步：关键！必须等待 Vue 完成 DOM 渲染
+  // 2. 异步等待：Vue 更新 DOM 是异步的，这里必须等 DOM 节点生成出来
   await nextTick();
 
-  // 第三步：再去渲染图表
+  // 3. 此时预览区已经有了 <div class="mermaid-container">，再去画图
   renderMermaid();
 }, 300);
+
 const props = defineProps({
   wsUrl: { type: String, default: 'ws://localhost:8080/ws/collaboration' }
 })
@@ -81,7 +83,8 @@ md.renderer.rules.paragraph_open = injectLineNumbers;
 md.renderer.rules.heading_open = injectLineNumbers;
 md.renderer.rules.list_item_open = injectLineNumbers;
 
-// 2. 核心修复：重新定义代码块渲染 (Fence)
+// --- Markdown-it 自定义渲染器 ---
+// 这里的逻辑类似后端的拦截器/过滤器
 const defaultFence = md.renderer.rules.fence;
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
@@ -90,8 +93,8 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const lineAttribute = token.map ? `data-line="${token.map[0]}"` : '';
 
   if (info === 'mermaid') {
-    // 关键：使用 btoa 编码或者直接存入 dataset
-    // 这样 HTML 引擎就不会去解析里面的 > 或 & 了
+    // 【关键防御方案】：将原始代码进行 URL 编码后存入 data-code 属性
+    // 这样就避免了 HTML 解析器把其中的 > 或 & 转义掉，保持了数据的纯净性
     const encodedCode = encodeURIComponent(token.content);
     return `<div class="mermaid-container" ${lineAttribute} data-code="${encodedCode}" data-processed="false"></div>`;
   }
@@ -121,20 +124,20 @@ const waitQueue = new Queue(1024)
 const bufferMap = ref({})
 let isApplyingRemote = false
 
-// --- 3. Mermaid 渲染与滚动同步 ---
-// 引入一个唯一的 ID 生成器，因为 mermaid.render 需要唯一 ID
-let mermaidIdx = 0; // 用于生成唯一ID
+// --- Mermaid 图表异步生成 ---
 const renderMermaid = async () => {
+  // 只捞出还没处理过（data-processed="false"）的节点
   const nodes = previewPane.value?.querySelectorAll('.mermaid-container[data-processed="false"]');
   if (!nodes || nodes.length === 0) return;
 
   mermaid.initialize({ startOnLoad: false, theme: 'default' });
 
   for (const node of nodes) {
+    // 从属性中取回编码后的原始字符串并解码
     const rawCode = decodeURIComponent(node.dataset.code); // 拿到最原始、纯净的代码
     if (!rawCode) continue;
 
-    node.setAttribute('data-processed', 'true');
+    node.setAttribute('data-processed', 'true');// 立即打上标记，防止重复进入
     const id = `mermaid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     try {
@@ -146,19 +149,19 @@ const renderMermaid = async () => {
   }
 };
 
-// --- 优化后的滚动同步逻辑 ---
+// --- 滚动同步系统 (互斥锁逻辑) ---
 let scrollTimer = null;
-let activeSide = null; // 'editor' 或 'preview'，标记当前主动滚动的侧
+let activeSide = null; // 这是一个“分布式锁”的思想，标记当前谁拥有滚动权
 
 const handlePreviewScroll = () => {
-  // 如果是编辑器带动的，或者当前有其他侧正在操作，直接跳过
+  // 如果当前是编辑器侧在触发滚动，预览侧就不要反向去干扰
   if (activeSide === 'editor' || !previewPane.value || !editorInstance.value) return;
 
-  activeSide = 'preview';
+  activeSide = 'preview';// 抢占锁
   clearTimeout(scrollTimer);
 
   const nodes = Array.from(previewPane.value.querySelectorAll('[data-line]'));
-  // 增加偏移量判断，寻找最靠近预览区顶部的元素
+  // 寻找出现在视口顶部附近的第一个带有 data-line 的 HTML 元素
   const targetNode = nodes.find(node => {
     const rect = node.getBoundingClientRect();
     return rect.top >= 0 && rect.top <= 150; // 窗口顶部 150px 范围内的第一个元素
@@ -166,8 +169,7 @@ const handlePreviewScroll = () => {
 
   if (targetNode) {
     const lineNumber = parseInt(targetNode.getAttribute('data-line')) + 1;
-    // setScrollTop 不会触发 onDidScrollChange，但 revealLine 会
-    // 所以这里只需确保 revealLine 顺滑
+    // 让编辑器跳转到对应行，这里会触发 handleEditorScroll，所以上面的 activeSide 锁至关重要
     editorInstance.value.revealLineInCenterIfOutsideViewport(lineNumber);
   }
 
@@ -178,7 +180,7 @@ const handlePreviewScroll = () => {
 const handleEditorScroll = () => {
   if (activeSide === 'preview' || !editorInstance.value || !previewPane.value) return;
 
-  activeSide = 'editor';
+  activeSide = 'editor';// 抢占锁
   clearTimeout(scrollTimer);
 
   const ranges = editorInstance.value.getVisibleRanges();
@@ -186,10 +188,10 @@ const handleEditorScroll = () => {
     const line = ranges[0].startLineNumber - 1;
     const target = previewPane.value.querySelector(`[data-line="${line}"]`);
     if (target) {
-      // 使用 scrollTo 配合 smooth 行为
+      // 计算得出预览区对应的 OffsetTop，直接跳转
       previewPane.value.scrollTo({
         top: target.offsetTop,
-        behavior: 'auto' // 协作时建议用 auto，smooth 会导致严重的延迟拉扯
+        behavior: 'auto' // 'auto' 代表立即跳转，比 'smooth' 延迟更低，减少同步偏差
       });
     }
   }
@@ -248,7 +250,7 @@ const initEditor = () => {
     sendOp(operation.toJSON());
   });
 }
-
+// --- 远程数据应用 (OT 冲突处理的核心入口) ---
 const applyRemoteOp = async (msg) => {
   isApplyingRemote = true;
   currentVersion = msg.version;
@@ -296,15 +298,17 @@ const applyRemoteOp = async (msg) => {
       index += len;
     }
   });
+  // 将计算后的 Edits 应用到 Monaco 编辑器
   editorInstance.value.executeEdits('remote-sync', edits);
 
-  // 远程同步后的预览更新
+  // 此时文本已变，触发一次手动渲染
   const newVal = model.getValue();
   editorContent.value = newVal;
   previewHtml.value = md.render(newVal);
   renderMermaid();
 
-  // 关键：渲染 Mermaid 可能会导致高度塌陷又撑起
+  // 【后端特别注意】：远程数据应用后，高度会变化
+  // 先等 HTML 渲染，再等 Mermaid 画图，画完后浏览器才会知道最终的页面高度
   await nextTick();
   await renderMermaid();
   // 渲染完后，不要手动去改滚动条，让用户保持在原来的位置
@@ -382,13 +386,15 @@ onMounted(() => {
   initEditor();
   connectWebSocket();
   startPullHistory();
-  // 创建监听器：只要预览区内容变了，就尝试渲染 Mermaid
+  // 类似于一个后台 Daemon 线程，持续监听 DOM 变化
   const observer = new MutationObserver(debounce(() => {
+    // 只要 previewPane 内部结构变了（比如协作同步了新内容），就检查有没有新的图表要画
     renderMermaid();
   }, 100));
 
   if (previewPane.value) {
     observer.observe(previewPane.value, { childList: true, subtree: true });
+    // 监听原生滚动事件
     previewPane.value.addEventListener('scroll', handlePreviewScroll, { passive: true });
   }
 });
@@ -466,7 +472,6 @@ const goBack = () => router.push('/dashboard');
   flex: 1;
   padding: 30px;
   overflow-y: auto;
-  scroll-behavior: smooth;
 }
 
 /* 深度渲染代码高亮样式微调 */
@@ -500,11 +505,7 @@ const goBack = () => router.push('/dashboard');
 }
 
 
-/* 确保预览容器不会限制 Mermaid 的显示 */
-.preview-pane {
-  position: relative;
-  z-index: 1;
-}
+
 
 :deep(.mermaid) {
   min-height: 50px;
@@ -526,9 +527,11 @@ const goBack = () => router.push('/dashboard');
 }
 
 :deep(.mermaid-container) {
-  min-height: 150px; /* 预估一个平均高度 */
+  min-height: 150px;
+  /* 预估一个平均高度 */
   display: block;
   margin: 10px 0;
-  transition: min-height 0.3s; /* 平滑过渡 */
+  transition: min-height 0.3s;
+  /* 平滑过渡 */
 }
 </style>
