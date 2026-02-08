@@ -1,15 +1,11 @@
 package com.vigza.markweave.core.service;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -17,20 +13,13 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vigza.markweave.api.dto.Collaboration.CollaboratorVo;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
-import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
-import com.vigza.markweave.common.util.TextOperation;
-import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
+
 import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
-import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.UserMapper;
-import com.vigza.markweave.infrastructure.service.RedisService;
 
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
-import lombok.extern.log4j.Log4j;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -43,13 +32,6 @@ public class CollaborationServiceImpl implements CollaborationService {
     @Autowired
     private UserMapper userMapper;
 
-    @Autowired
-    private RedissonClient redissonClient;
-
-    @Autowired
-    private RabbitTemplate rabbitTemplate;
-    @Autowired
-    private RedisService redisService;
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -139,10 +121,10 @@ public class CollaborationServiceImpl implements CollaborationService {
         queryWrapper.eq(Collaboration::getDocId, docId);
         List<Collaboration> collaborations = collaborationMapper.selectList(queryWrapper);
 
-        Map<Long,Integer> userPermissionMap = new HashMap<>();
+        Map<Long, Integer> userPermissionMap = new HashMap<>();
         List<Long> userIds = collaborations.stream()
-                .map(c ->{
-                    userPermissionMap.put(c.getUserId(),c.getPermission());
+                .map(c -> {
+                    userPermissionMap.put(c.getUserId(), c.getPermission());
                     return c.getUserId();
                 })
                 .collect(Collectors.toList());
@@ -154,7 +136,7 @@ public class CollaborationServiceImpl implements CollaborationService {
         List<CollaboratorVo> collaborators = userMapper.selectList(new LambdaQueryWrapper<User>()
                 .in(User::getId, userIds))
                 .stream()
-                .map(u ->{
+                .map(u -> {
                     CollaboratorVo vo = new CollaboratorVo();
                     vo.setUserId(u.getId());
                     vo.setNickName(u.getNickName());
@@ -201,87 +183,5 @@ public class CollaborationServiceImpl implements CollaborationService {
         return Result.success();
     }
 
-    @Override
-    public void processOperation(Long docId, JSONObject clientMsg) {
 
-        String lockKey = "lock:doc:" + docId;
-        RLock lock = redissonClient.getLock(lockKey);
-        boolean isLocked = false;
-        log.info("processOp");
-        try {
-            isLocked = lock.tryLock(3, TimeUnit.SECONDS);
-            if (isLocked) {
-                log.info("isLocked");
-                Long clientVer = clientMsg.getLong("version");
-                TextOperation clientOp = null;
-                Long currentVersion = redisService.getVersion(docId);
-                if (clientVer < currentVersion) {
-                    // 我们变换的时候，需要取出client的op，然后和历史op，进行transform，然后获得op'
-                    clientOp = new TextOperation().fromJSON(clientMsg.getJSONArray("op").toString());
-
-                    // 我们广播的version的就是它的操作clientaVer，所以clientVer执行过，这里应该从 + 1 开始
-                    Long size = redisService.getHistoryListSize(docId);
-                    List<String> historyList = redisService
-                            .getHistoryRange(docId, size - (currentVersion - clientVer), size - 1)
-                            .stream()
-                            .map(obj -> obj.toString()).collect(Collectors.toList());
-                    for (String history : historyList) {
-                        JSONObject hisObj = JSONUtil.parseObj(history);
-
-                        if (hisObj.getStr("clientId").compareTo(clientMsg.getStr("clientId")) < 0) {
-                            TextOperation historyOp = new TextOperation()
-                                    .fromJSON(hisObj.getJSONArray("op").toString());
-                            TextOperation[] transformed = TextOperation.transform(historyOp, clientOp);
-                            clientOp = transformed[1];
-                        } else {
-                            TextOperation historyOp = new TextOperation()
-                                    .fromJSON(hisObj.getJSONArray("op").toString());
-                            TextOperation[] transformed = TextOperation.transform(clientOp, historyOp);
-                            clientOp = transformed[0];
-                        }
-
-                    }
-                    clientMsg.set("op", clientOp.toJSON());
-                }
-
-                currentVersion = redisService.getAndIncrementVersion(docId);
-                clientMsg.set("version", currentVersion);
-                redisService.pushHistory(docId, clientMsg.toString());
-                clientOp = new TextOperation().fromJSON(clientMsg.getStr("op"));
-                // 我们拿着这个op然后apply到fullText上
-                String fullText = redisService.getFullText(docId);
-                fullText = clientOp.apply(fullText.toString());
-                redisService.setFullText(docId, fullText);
-                String response = JSONUtil.toJsonStr(clientMsg);
-                rabbitTemplate.convertAndSend(RabbitMqConfig.COLLABORATION_EXCHANGE, "", response);
-                log.info("send msg to collaboration exchange: {}", response);
-            } else {
-                log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
-                Integer count = clientMsg.getInt("retryCount");
-                if (count == null) {
-                    count = 0;
-                }
-                Integer retryCount = count + 1;
-                clientMsg.set("retryCount", retryCount);
-                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY,
-                        clientMsg, msg -> {
-                            Long backoff = computeBackoff(retryCount);
-                            msg.getMessageProperties().setExpiration(backoff.toString());
-                            return msg;
-                        });
-            }
-        } catch (InterruptedException e) {
-            log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
-        } finally {
-            if (isLocked) {
-                log.info("unlock");
-                lock.unlock();
-            }
-        }
-    }
-
-    private Long computeBackoff(Integer retryCount) {
-        int shift = Math.min(retryCount - 1, 16);
-        return (1L << shift);
-    }
 }

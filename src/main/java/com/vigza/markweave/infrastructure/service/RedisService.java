@@ -33,7 +33,7 @@ public class RedisService {
 
     public String getFullText(Long docId) {
         Object text = redisTemplate.opsForValue().get(DOC_TEXT_PREFIX + docId);
-        return text == null ? "" : text.toString();
+        return  text == null ? null : text.toString();
     }
 
     public void setFullText(Long docId, String fullText) {

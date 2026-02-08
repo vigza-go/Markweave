@@ -28,6 +28,6 @@ public interface CollaborationService {
     Result<?> acceptInvitation(String userToken, String invToken);
 
 
-    void processOperation(Long docId,JSONObject clientMsg);
+  
 
 }

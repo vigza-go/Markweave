@@ -32,6 +32,7 @@ import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.DocMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
+import com.vigza.markweave.infrastructure.service.RedisService;
 
 @Service
 public class FileSystemServiceImpl implements FileSystemService {
@@ -40,11 +41,15 @@ public class FileSystemServiceImpl implements FileSystemService {
 
     @Autowired
     private DocMapper docMapper;
+
     @Autowired
     private CollaborationService collaborationService;
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private  RedisService redisService;
 
     @PostConstruct
     public void init() {
@@ -66,15 +71,16 @@ public class FileSystemServiceImpl implements FileSystemService {
     @Override
     public void initUserNodes(String token) {
         User user = jwtUtil.getUserFromToken(token);
-        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(),0L, Constants.FsNodeType.FOLDER, token).getData();
+        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(), 0L, Constants.FsNodeType.FOLDER, token)
+                .getData();
         Long faId = faNode.getId();
-        createNode("我的共享", user.getUserShareSpaceNodeId(),faId, Constants.FsNodeType.FOLDER, token);
+        createNode("我的共享", user.getUserShareSpaceNodeId(), faId, Constants.FsNodeType.FOLDER, token);
     }
 
-    // 记得参数校验filename不   能包含特殊字符
+    // 记得参数校验filename不 能包含特殊字符
     @Transactional
     @Override
-    public Result<FsNode> createNode(String fileName,Long nodeId, Long faId, Integer fileType, String token) {
+    public Result<FsNode> createNode(String fileName, Long nodeId, Long faId, Integer fileType, String token) {
         Result<FsNode> preResult = getAccess(faId, token, false);
         if (!preResult.getCode().equals(200))
             return preResult;
@@ -91,7 +97,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         }
 
         User user = jwtUtil.getUserFromToken(token);
-        if(nodeId == null){
+        if (nodeId == null) {
             nodeId = IdGenerator.nextId();
         }
         FsNode node = FsNode.builder()
@@ -204,8 +210,9 @@ public class FileSystemServiceImpl implements FileSystemService {
                 .map(node -> node.getPtId())
                 .collect(Collectors.toSet());
 
-        List<FsNode> ptrList = ptIds.isEmpty() ? new ArrayList<FsNode>() : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
-                .in(FsNode::getId, ptIds));
+        List<FsNode> ptrList = ptIds.isEmpty() ? new ArrayList<FsNode>()
+                : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
+                        .in(FsNode::getId, ptIds));
 
         Map<Long, FsNode> targetMap = ptrList.stream().collect(Collectors.toMap(FsNode::getId, n -> n));
 
@@ -286,7 +293,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         List<FsNode> fsNodes = fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
                 .eq(FsNode::getUserId, userId)
                 .ne(FsNode::getType, Constants.FsNodeType.FOLDER)
-                .eq(FsNode::getRecycled,false)
+                .eq(FsNode::getRecycled, false)
                 .orderByDesc(FsNode::getLastViewTime)
                 .last("limit 50"));
         if (fsNodes == null)
@@ -295,24 +302,26 @@ public class FileSystemServiceImpl implements FileSystemService {
         List<Long> ptIds = fsNodes.stream().filter(n -> n.getType().equals(Constants.FsNodeType.SHORTCUT))
                 .map(n -> n.getPtId()).collect(Collectors.toList());
 
-        Map<Long, FsNode> map = ptIds.isEmpty() ? new HashMap<Long,FsNode>() : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
-                .in(FsNode::getId, ptIds)).stream().collect(Collectors.toMap(FsNode::getId,n -> n));
+        Map<Long, FsNode> map = ptIds.isEmpty() ? new HashMap<Long, FsNode>()
+                : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
+                        .in(FsNode::getId, ptIds)).stream().collect(Collectors.toMap(FsNode::getId, n -> n));
 
         List<RecentDocVO> result = fsNodes.stream()
                 .map(fsNode -> {
                     FsNode targetNode = fsNode;
-                    if(fsNode.getType().equals(Constants.FsNodeType.SHORTCUT)){
+                    if (fsNode.getType().equals(Constants.FsNodeType.SHORTCUT)) {
                         targetNode = map.get(fsNode.getPtId());
                     }
-                    if(targetNode == null) return null;
+                    if (targetNode == null)
+                        return null;
                     return RecentDocVO.builder()
-                        .docId(targetNode.getDocId())
-                        .docName(targetNode.getName())
-                        .ownerId(targetNode.getUserId())
-                        .size(targetNode.getSize())
-                        .lastViewTime(fsNode.getLastViewTime()) // 依然用当前用户的查看时间
-                        .ownerName(targetNode.getDocOwner())
-                        .build();
+                            .docId(targetNode.getDocId())
+                            .docName(targetNode.getName())
+                            .ownerId(targetNode.getUserId())
+                            .size(targetNode.getSize())
+                            .lastViewTime(fsNode.getLastViewTime()) // 依然用当前用户的查看时间
+                            .ownerName(targetNode.getDocOwner())
+                            .build();
                 })
                 .filter(item -> item != null)
                 .collect(Collectors.toList());
@@ -332,18 +341,18 @@ public class FileSystemServiceImpl implements FileSystemService {
         FsNode srcNode = (FsNode) preResult.getData();
         FsNode faNode = (FsNode) faResult.getData();
         FsNode node = FsNode.builder()
-        .id(IdGenerator.nextId())
-        .userId(user.getId())
-        .docOwner(srcNode.getDocOwner())
-        .name(srcNode.getName() + "_快捷方式")
-        .faId(faId)
-        .path(faNode.getPath() + "/" + srcNode.getName() + "_快捷方式")
-        .type(Constants.FsNodeType.SHORTCUT)
-        .ptId(srcNodeId)
-        .recycled(false)
-        .size(0L)
-        .createTime(LocalDateTime.now())
-        .build();
+                .id(IdGenerator.nextId())
+                .userId(user.getId())
+                .docOwner(srcNode.getDocOwner())
+                .name(srcNode.getName() + "_快捷方式")
+                .faId(faId)
+                .path(faNode.getPath() + "/" + srcNode.getName() + "_快捷方式")
+                .type(Constants.FsNodeType.SHORTCUT)
+                .ptId(srcNodeId)
+                .recycled(false)
+                .size(0L)
+                .createTime(LocalDateTime.now())
+                .build();
         fsNodeMapper.insert(node);
         return Result.success(node);
 
@@ -367,18 +376,18 @@ public class FileSystemServiceImpl implements FileSystemService {
     public Result<?> restoreFile(Long nodeId, String token) {
         // Result<?> preResult = getAccess(nodeId, token, true);
         // if (!preResult.getCode().equals(200))
-        //     return preResult;
+        // return preResult;
 
         // FsNode node = (FsNode) preResult.getData();
         // node.setRecycled(false);
         // fsNodeMapper.updateById(node);
 
         // if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
-        //     String pathPrefix = node.getPath() + "/";
-        //     String newPathPrefix = node.getPath().replaceFirst("/[^/]+$", "") + "/";
-        //     fsNodeMapper.update(null, new LambdaQueryWrapper<FsNode>()
-        //             .likeRight(FsNode::getPath, pathPrefix)
-        //             .set(FsNode::getRecycled, false));
+        // String pathPrefix = node.getPath() + "/";
+        // String newPathPrefix = node.getPath().replaceFirst("/[^/]+$", "") + "/";
+        // fsNodeMapper.update(null, new LambdaQueryWrapper<FsNode>()
+        // .likeRight(FsNode::getPath, pathPrefix)
+        // .set(FsNode::getRecycled, false));
         // }
 
         return Result.success();
@@ -399,6 +408,19 @@ public class FileSystemServiceImpl implements FileSystemService {
         fsNodeMapper.deleteById(nodeId);
 
         return Result.success();
+    }
+
+    @Override
+    public String getDocContent(Long docId) {
+        String content = redisService.getFullText(docId);
+        if(content == null){
+            content = docMapper.selectById(docId).getContent();
+            if(content == null){
+                content = "";
+            }
+            redisService.setFullText(docId, content);
+        }
+        return content;
     }
 
 }

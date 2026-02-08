@@ -52,6 +52,7 @@ import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.DocMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
+import com.vigza.markweave.infrastructure.service.RedisService;
 
 @Service
 public class FileSystemServiceImpl implements FileSystemService {
@@ -60,11 +61,15 @@ public class FileSystemServiceImpl implements FileSystemService {
 
     @Autowired
     private DocMapper docMapper;
+
     @Autowired
     private CollaborationService collaborationService;
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private  RedisService redisService;
 
     @PostConstruct
     public void init() {
@@ -86,15 +91,16 @@ public class FileSystemServiceImpl implements FileSystemService {
     @Override
     public void initUserNodes(String token) {
         User user = jwtUtil.getUserFromToken(token);
-        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(),0L, Constants.FsNodeType.FOLDER, token).getData();
+        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(), 0L, Constants.FsNodeType.FOLDER, token)
+                .getData();
         Long faId = faNode.getId();
-        createNode("我的共享", user.getUserShareSpaceNodeId(),faId, Constants.FsNodeType.FOLDER, token);
+        createNode("我的共享", user.getUserShareSpaceNodeId(), faId, Constants.FsNodeType.FOLDER, token);
     }
 
-    // 记得参数校验filename不   能包含特殊字符
+    // 记得参数校验filename不 能包含特殊字符
     @Transactional
     @Override
-    public Result<FsNode> createNode(String fileName,Long nodeId, Long faId, Integer fileType, String token) {
+    public Result<FsNode> createNode(String fileName, Long nodeId, Long faId, Integer fileType, String token) {
         Result<FsNode> preResult = getAccess(faId, token, false);
         if (!preResult.getCode().equals(200))
             return preResult;
@@ -111,7 +117,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         }
 
         User user = jwtUtil.getUserFromToken(token);
-        if(nodeId == null){
+        if (nodeId == null) {
             nodeId = IdGenerator.nextId();
         }
         FsNode node = FsNode.builder()
@@ -224,8 +230,9 @@ public class FileSystemServiceImpl implements FileSystemService {
                 .map(node -> node.getPtId())
                 .collect(Collectors.toSet());
 
-        List<FsNode> ptrList = ptIds.isEmpty() ? new ArrayList<FsNode>() : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
-                .in(FsNode::getId, ptIds));
+        List<FsNode> ptrList = ptIds.isEmpty() ? new ArrayList<FsNode>()
+                : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
+                        .in(FsNode::getId, ptIds));
 
         Map<Long, FsNode> targetMap = ptrList.stream().collect(Collectors.toMap(FsNode::getId, n -> n));
 
@@ -247,6 +254,7 @@ public class FileSystemServiceImpl implements FileSystemService {
     private void copyBaseProperties(FsNode source, FsNodeVo target) {
         target.setId(source.getId());
         target.setType(source.getType());
+        target.setDocId(source.getDocId());
         target.setName(source.getName());
         target.setSize(source.getSize());
         target.setUpdateTime(source.getUpdateTime());
@@ -304,6 +312,8 @@ public class FileSystemServiceImpl implements FileSystemService {
 
         List<FsNode> fsNodes = fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
                 .eq(FsNode::getUserId, userId)
+                .ne(FsNode::getType, Constants.FsNodeType.FOLDER)
+                .eq(FsNode::getRecycled, false)
                 .orderByDesc(FsNode::getLastViewTime)
                 .last("limit 50"));
         if (fsNodes == null)
@@ -312,23 +322,26 @@ public class FileSystemServiceImpl implements FileSystemService {
         List<Long> ptIds = fsNodes.stream().filter(n -> n.getType().equals(Constants.FsNodeType.SHORTCUT))
                 .map(n -> n.getPtId()).collect(Collectors.toList());
 
-        Map<Long, FsNode> map = ptIds.isEmpty() ? new HashMap<Long,FsNode>() : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
-                .in(FsNode::getId, ptIds)).stream().collect(Collectors.toMap(FsNode::getId,n -> n));
+        Map<Long, FsNode> map = ptIds.isEmpty() ? new HashMap<Long, FsNode>()
+                : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
+                        .in(FsNode::getId, ptIds)).stream().collect(Collectors.toMap(FsNode::getId, n -> n));
 
         List<RecentDocVO> result = fsNodes.stream()
                 .map(fsNode -> {
                     FsNode targetNode = fsNode;
-                    if(fsNode.getType().equals(Constants.FsNodeType.SHORTCUT)){
+                    if (fsNode.getType().equals(Constants.FsNodeType.SHORTCUT)) {
                         targetNode = map.get(fsNode.getPtId());
                     }
-                    if(targetNode == null) return null;
+                    if (targetNode == null)
+                        return null;
                     return RecentDocVO.builder()
-                        .docId(targetNode.getDocId())
-                        .docName(targetNode.getName())
-                        .ownerId(targetNode.getUserId())
-                        .size(targetNode.getSize())
-                        .lastViewTime(fsNode.getLastViewTime()) // 依然用当前用户的查看时间
-                        .build();
+                            .docId(targetNode.getDocId())
+                            .docName(targetNode.getName())
+                            .ownerId(targetNode.getUserId())
+                            .size(targetNode.getSize())
+                            .lastViewTime(fsNode.getLastViewTime()) // 依然用当前用户的查看时间
+                            .ownerName(targetNode.getDocOwner())
+                            .build();
                 })
                 .filter(item -> item != null)
                 .collect(Collectors.toList());
@@ -348,21 +361,86 @@ public class FileSystemServiceImpl implements FileSystemService {
         FsNode srcNode = (FsNode) preResult.getData();
         FsNode faNode = (FsNode) faResult.getData();
         FsNode node = FsNode.builder()
-        .id(IdGenerator.nextId())
-        .userId(user.getId())
-        .docOwner(srcNode.getDocOwner())
-        .name(srcNode.getName() + "_快捷方式")
-        .faId(faId)
-        .path(faNode.getPath() + "/" + srcNode.getName() + "_快捷方式")
-        .type(Constants.FsNodeType.SHORTCUT)
-        .ptId(srcNodeId)
-        .recycled(false)
-        .size(0L)
-        .createTime(LocalDateTime.now())
-        .build();
+                .id(IdGenerator.nextId())
+                .userId(user.getId())
+                .docOwner(srcNode.getDocOwner())
+                .name(srcNode.getName() + "_快捷方式")
+                .faId(faId)
+                .path(faNode.getPath() + "/" + srcNode.getName() + "_快捷方式")
+                .type(Constants.FsNodeType.SHORTCUT)
+                .ptId(srcNodeId)
+                .recycled(false)
+                .size(0L)
+                .createTime(LocalDateTime.now())
+                .build();
         fsNodeMapper.insert(node);
         return Result.success(node);
-        
+
+    }
+
+    @Override
+    public Result<List<FsNodeVo>> getRecycledFiles(String token) {
+        User user = jwtUtil.getUserFromToken(token);
+        List<FsNode> recycledNodes = fsNodeMapper.selectRecycledFiles(user.getId());
+
+        List<FsNodeVo> result = recycledNodes.stream().map(node -> {
+            FsNodeVo vo = new FsNodeVo();
+            copyBaseProperties(node, vo);
+            return vo;
+        }).collect(Collectors.toList());
+
+        return Result.success(result);
+    }
+
+    @Override
+    public Result<?> restoreFile(Long nodeId, String token) {
+        // Result<?> preResult = getAccess(nodeId, token, true);
+        // if (!preResult.getCode().equals(200))
+        // return preResult;
+
+        // FsNode node = (FsNode) preResult.getData();
+        // node.setRecycled(false);
+        // fsNodeMapper.updateById(node);
+
+        // if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
+        // String pathPrefix = node.getPath() + "/";
+        // String newPathPrefix = node.getPath().replaceFirst("/[^/]+$", "") + "/";
+        // fsNodeMapper.update(null, new LambdaQueryWrapper<FsNode>()
+        // .likeRight(FsNode::getPath, pathPrefix)
+        // .set(FsNode::getRecycled, false));
+        // }
+
+        return Result.success();
+    }
+
+    @Override
+    public Result<?> permanentlyDelete(Long nodeId, String token) {
+        Result<?> preResult = getAccess(nodeId, token, true);
+        if (!preResult.getCode().equals(200))
+            return preResult;
+
+        FsNode node = (FsNode) preResult.getData();
+
+        if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
+            fsNodeMapper.delete(new LambdaQueryWrapper<FsNode>()
+                    .likeRight(FsNode::getPath, node.getPath() + "/"));
+        }
+        fsNodeMapper.deleteById(nodeId);
+
+        return Result.success();
+    }
+
+    @Override
+    public String getDocContent(Long docId) {
+        String content = redisService.getFullText(docId);
+        if(content == null){
+            content = docMapper.selectById(docId).getContent();
+            if(content == null){
+                content = "";
+            }
+            redisService.setFullText(docId, content);
+        }
+        return content;
     }
 
 }
@@ -371,16 +449,12 @@ public class FileSystemServiceImpl implements FileSystemService {
 FILE: ./src/main/java/com/vigza/markweave/core/service/CollaborationServiceImpl.java
 package com.vigza.markweave.core.service;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -388,20 +462,13 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vigza.markweave.api.dto.Collaboration.CollaboratorVo;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
-import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
-import com.vigza.markweave.common.util.TextOperation;
-import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
+
 import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
-import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.UserMapper;
-import com.vigza.markweave.infrastructure.service.RedisService;
 
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
-import lombok.extern.log4j.Log4j;
 import lombok.extern.slf4j.Slf4j;
 
 @Service
@@ -414,13 +481,6 @@ public class CollaborationServiceImpl implements CollaborationService {
     @Autowired
     private UserMapper userMapper;
 
-    @Autowired
-    private RedissonClient redissonClient;
-
-    @Autowired
-    private RabbitTemplate rabbitTemplate;
-    @Autowired
-    private RedisService redisService;
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -432,7 +492,6 @@ public class CollaborationServiceImpl implements CollaborationService {
                 .userId(userId)
                 .docId(docId)
                 .permission(permission)
-                .updateTime(LocalDateTime.now())
                 .build();
         collaborationMapper.insertOrUpdate(collaboration);
     }
@@ -511,10 +570,10 @@ public class CollaborationServiceImpl implements CollaborationService {
         queryWrapper.eq(Collaboration::getDocId, docId);
         List<Collaboration> collaborations = collaborationMapper.selectList(queryWrapper);
 
-        Map<Long,Integer> userPermissionMap = new HashMap<>();
+        Map<Long, Integer> userPermissionMap = new HashMap<>();
         List<Long> userIds = collaborations.stream()
-                .map(c ->{
-                    userPermissionMap.put(c.getUserId(),c.getPermission());
+                .map(c -> {
+                    userPermissionMap.put(c.getUserId(), c.getPermission());
                     return c.getUserId();
                 })
                 .collect(Collectors.toList());
@@ -526,7 +585,7 @@ public class CollaborationServiceImpl implements CollaborationService {
         List<CollaboratorVo> collaborators = userMapper.selectList(new LambdaQueryWrapper<User>()
                 .in(User::getId, userIds))
                 .stream()
-                .map(u ->{
+                .map(u -> {
                     CollaboratorVo vo = new CollaboratorVo();
                     vo.setUserId(u.getId());
                     vo.setNickName(u.getNickName());
@@ -568,91 +627,12 @@ public class CollaborationServiceImpl implements CollaborationService {
                 .userId(user.getId())
                 .docId(docId)
                 .permission(permission)
-                .updateTime(LocalDateTime.now())
                 .build();
         collaborationMapper.insert(collaboration);
         return Result.success();
     }
 
-    @Override
-    public void processOperation(Long docId, JSONObject clientMsg) {
 
-        String lockKey = "lock:doc:" + docId;
-        RLock lock = redissonClient.getLock(lockKey);
-        boolean isLocked = false;
-        try {
-            isLocked = lock.tryLock(3, TimeUnit.SECONDS);
-            if (isLocked) {
-                Long clientVer = clientMsg.getLong("version");
-                TextOperation clientOp = null;
-                Long currentVersion = redisService.getVersion(docId);
-                if (clientVer < currentVersion) {
-                    // 我们变换的时候，需要取出client的op，然后和历史op，进行transform，然后获得op'
-                    clientOp = new TextOperation().fromJSON(clientMsg.getJSONArray("op").toString());
-
-                    // 我们广播的version的就是它的操作clientaVer，所以clientVer执行过，这里应该从 + 1 开始
-                    Long size = redisService.getHistoryListSize(docId);
-                    List<String> historyList = redisService
-                            .getHistoryRange(docId, size - (currentVersion - clientVer), size - 1)
-                            .stream()
-                            .map(obj -> obj.toString()).collect(Collectors.toList());
-                    for (String history : historyList) {
-                        JSONObject hisObj = JSONUtil.parseObj(history);
-
-                        if (hisObj.getStr("clientId").compareTo(clientMsg.getStr("clientId")) < 0) {
-                            TextOperation historyOp = new TextOperation()
-                                    .fromJSON(hisObj.getJSONArray("op").toString());
-                            TextOperation[] transformed = TextOperation.transform(historyOp, clientOp);
-                            clientOp = transformed[1];
-                        } else {
-                            TextOperation historyOp = new TextOperation()
-                                    .fromJSON(hisObj.getJSONArray("op").toString());
-                            TextOperation[] transformed = TextOperation.transform(clientOp, historyOp);
-                            clientOp = transformed[0];
-                        }
-
-                    }
-                    clientMsg.set("op", clientOp.toJSON());
-                }
-
-                currentVersion = redisService.getAndIncrementVersion(docId);
-                clientMsg.set("version", currentVersion);
-                redisService.pushHistory(docId, clientMsg.toString());
-                clientOp = new TextOperation().fromJSON(clientMsg.getStr("op"));
-                // 我们拿着这个op然后apply到fullText上
-                String fullText = redisService.getFullText(docId);
-                fullText = clientOp.apply(fullText.toString());
-                redisService.setFullText(docId, fullText);
-                String response = JSONUtil.toJsonStr(clientMsg);
-                rabbitTemplate.convertAndSend(RabbitMqConfig.COLLABORATION_EXCHANGE, "", response);
-            } else {
-                log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
-                Integer count = clientMsg.getInt("retryCount");
-                if (count == null) {
-                    count = 0;
-                }
-                Integer retryCount = count + 1;
-                clientMsg.set("retryCount", retryCount);
-                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY,
-                        clientMsg, msg -> {
-                            Long backoff = computeBackoff(retryCount);
-                            msg.getMessageProperties().setExpiration(backoff.toString());
-                            return msg;
-                        });
-            }
-        } catch (InterruptedException e) {
-            log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
-        } finally {
-            if (isLocked) {
-                lock.unlock();
-            }
-        }
-    }
-
-    private Long computeBackoff(Integer retryCount) {
-        int shift = Math.min(retryCount - 1, 16);
-        return (1L << shift);
-    }
 }
 
 ---
@@ -687,7 +667,7 @@ public interface CollaborationService {
     Result<?> acceptInvitation(String userToken, String invToken);
 
 
-    void processOperation(Long docId,JSONObject clientMsg);
+  
 
 }
 
@@ -701,6 +681,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.vigza.markweave.common.Result;
+import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.service.RedisService;
 
@@ -718,7 +699,7 @@ public class MarkdownAiServiceImpl implements MarkdownAiService {
     private AiService aiService;
 
     @Autowired
-    private RedisService redisService;
+    private FileSystemService fileSystemService;
 
     @Autowired
     private CollaborationService collaborationService;
@@ -730,7 +711,7 @@ public class MarkdownAiServiceImpl implements MarkdownAiService {
             return Result.error(403, "无权限");
         }
 
-        String content = redisService.getFullText(docId);
+        String content = fileSystemService.getDocContent(docId);
 
         // 1. 定义 Prompt 模板，明确要求美化 Markdown 排版并修正语法
         String template = "你是一个专业的 Markdown 排版专家。请对以下 Markdown 内容进行美化和修正：\n" +
@@ -766,6 +747,16 @@ public class MarkdownAiServiceImpl implements MarkdownAiService {
         return Result.success(aiResult);
     }
 
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/core/service/AlgorithmService.java
+package com.vigza.markweave.core.service;
+
+import cn.hutool.json.JSONObject;
+
+public interface AlgorithmService {
+    void processOperation(Long docId, JSONObject clientMsg);
 }
 
 ---
@@ -818,6 +809,8 @@ public class UserServiceImpl implements UserService {
                 .nickname(user.getNickName())
                 .headUrl(user.getHeadUrl())
                 .type(user.getType())
+                .userShareSpaceNodeId(user.getUserShareSpaceNodeId())
+                .userSpaceNodeId(user.getUserSpaceNodeId())
                 .build();
         return AuthResponse.builder().token(token).user(userDTO).build();
     }
@@ -913,12 +906,147 @@ public interface FileSystemService {
     // 在 websocket 中调用
     void updateDocContent(Long docId, String content);
 
+    String getDocContent(Long docId);
+
     // 应当在用户打开文档时，关闭文章后调用
     Result<?> updateViewTime(Long nodeId,String token);
 
     Result<List<RecentDocVO>> selectRecentDocList(String token);
 
     void initUserNodes(String token);
+
+    Result<List<FsNodeVo>> getRecycledFiles(String token);
+
+    Result<?> restoreFile(Long nodeId, String token);
+
+    Result<?> permanentlyDelete(Long nodeId, String token);
+
+}
+
+---
+FILE: ./src/main/java/com/vigza/markweave/core/service/AlgorithmServiceImpl.java
+package com.vigza.markweave.core.service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+import org.redisson.api.RLock;
+import com.vigza.markweave.common.util.IdGenerator;
+import com.vigza.markweave.common.util.TextOperation;
+import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
+import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
+import lombok.extern.slf4j.Slf4j;
+
+import org.redisson.api.RedissonClient;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.vigza.markweave.infrastructure.service.RedisService;
+
+@Slf4j
+@Service
+public class AlgorithmServiceImpl implements AlgorithmService {
+
+    @Autowired
+    private FileSystemService fsService;
+
+    @Autowired
+    private RedissonClient redissonClient;
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    @Autowired
+    private RedisService redisService;
+
+    @Override
+    public void processOperation(Long docId, JSONObject clientMsg) {
+
+        String lockKey = "lock:doc:" + docId;
+        RLock lock = redissonClient.getLock(lockKey);
+        boolean isLocked = false;
+        log.info("processOp");
+        try {
+            isLocked = lock.tryLock(3, TimeUnit.SECONDS);
+            if (isLocked) {
+                log.info("isLocked");
+                Long clientVer = clientMsg.getLong("version");
+                TextOperation clientOp = null;
+                Long currentVersion = redisService.getVersion(docId);
+                if (clientVer < currentVersion) {
+                    // 我们变换的时候，需要取出client的op，然后和历史op，进行transform，然后获得op'
+                    clientOp = new TextOperation().fromJSON(clientMsg.getJSONArray("op").toString());
+
+                    // 我们广播的version的就是它的操作clientaVer，所以clientVer执行过，这里应该从 + 1 开始
+                    Long size = redisService.getHistoryListSize(docId);
+                    List<String> historyList = redisService
+                            .getHistoryRange(docId, size - (currentVersion - clientVer), size - 1)
+                            .stream()
+                            .map(obj -> obj.toString()).collect(Collectors.toList());
+                    for (String history : historyList) {
+                        JSONObject hisObj = JSONUtil.parseObj(history);
+
+                        if (hisObj.getStr("clientId").compareTo(clientMsg.getStr("clientId")) < 0) {
+                            TextOperation historyOp = new TextOperation()
+                                    .fromJSON(hisObj.getJSONArray("op").toString());
+                            TextOperation[] transformed = TextOperation.transform(historyOp, clientOp);
+                            clientOp = transformed[1];
+                        } else {
+                            TextOperation historyOp = new TextOperation()
+                                    .fromJSON(hisObj.getJSONArray("op").toString());
+                            TextOperation[] transformed = TextOperation.transform(clientOp, historyOp);
+                            clientOp = transformed[0];
+                        }
+
+                    }
+                    clientMsg.set("op", clientOp.toJSON());
+                }
+
+                currentVersion = redisService.getAndIncrementVersion(docId);
+                clientMsg.set("version", currentVersion);
+                redisService.pushHistory(docId, clientMsg.toString());
+                clientOp = new TextOperation().fromJSON(clientMsg.getStr("op"));
+                // 我们拿着这个op然后apply到fullText上
+                String fullText = fsService.getDocContent(docId);
+                fullText = clientOp.apply(fullText.toString());
+                redisService.setFullText(docId, fullText);
+                String response = JSONUtil.toJsonStr(clientMsg);
+                rabbitTemplate.convertAndSend(RabbitMqConfig.COLLABORATION_EXCHANGE, "", response);
+                log.info("send msg to collaboration exchange: {}", response);
+            } else {
+                log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
+                Integer count = clientMsg.getInt("retryCount");
+                if (count == null) {
+                    count = 0;
+                }
+                Integer retryCount = count + 1;
+                clientMsg.set("retryCount", retryCount);
+                rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY,
+                        clientMsg, msg -> {
+                            Long backoff = computeBackoff(retryCount);
+                            msg.getMessageProperties().setExpiration(backoff.toString());
+                            return msg;
+                        });
+            }
+        } catch (InterruptedException e) {
+            log.error("获取文档 {} 锁失败: {}", docId, e.getMessage());
+        } finally {
+            if (isLocked) {
+                log.info("unlock");
+                lock.unlock();
+            }
+        }
+    }
+
+    private Long computeBackoff(Integer retryCount) {
+        int shift = Math.min(retryCount - 1, 16);
+        return (1L << shift);
+    }
 
 }
 
@@ -1039,8 +1167,8 @@ public class IdGenerator {
     private static Snowflake snowflake;
     
     static {
-        long workerId = System.currentTimeMillis() % 2026; 
-        long datacenterId = System.currentTimeMillis() % 2026;
+        long workerId = System.currentTimeMillis() % 31; 
+        long datacenterId = System.currentTimeMillis() % 31;
         snowflake = IdUtil.getSnowflake(workerId, datacenterId);
     }
     
@@ -1366,6 +1494,12 @@ public class JwtUtil {
     }
 
     public boolean validateToken(String token){
+        if(token == null){
+            return false;
+        }
+        if(token.startsWith(prefix)){
+            token = token.substring(prefix.length()).trim();
+        }
         try{
             JWT jwt = JWTUtil.parseToken(token);
             return jwt.setKey(secret.getBytes()).verify() && jwt.validate(0);
@@ -1375,18 +1509,27 @@ public class JwtUtil {
     }
 
     public User getUserFromToken(String token){
+        if(token.startsWith(prefix)){
+            token = token.substring(prefix.length()).trim();
+        }
         JWT jwt = JWTUtil.parseToken(token);
         Object userObject =  jwt.getPayload("user");
         return BeanUtil.toBean(userObject,User.class); 
     }
 
     public Long getDocIdFromInvToken(String invToken){
+        if(invToken.startsWith(prefix)){
+            invToken = invToken.substring(prefix.length()).trim();
+        }
         JWT jwt = JWTUtil.parseToken(invToken);
         Object docIdObject =  jwt.getPayload("docId");
         return BeanUtil.toBean(docIdObject, Long.class);
     }    
 
     public Integer getPermissionFromInvToken(String invToken){
+        if(invToken.startsWith(prefix)){
+            invToken = invToken.substring(prefix.length()).trim();
+        }
         JWT jwt = JWTUtil.parseToken(invToken);
         Object pObject = jwt.getPayload("permission");
         return BeanUtil.toBean(pObject,Integer.class);
@@ -1433,6 +1576,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(RuntimeException.class)
     public Result<?> handleRuntimeException(RuntimeException e) {
         log.error("系统运行异常:{}", e.getMessage());
+        e.printStackTrace();
         return Result.error(500, "系统繁忙，请稍后再试");
     }
 
@@ -1456,6 +1600,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public Result<?> handleException(Exception e) {
         log.error("其它异常:{}", e.getMessage());
+        e.printStackTrace();
         return Result.error(500, "服务器异常");
     }
 
@@ -1556,6 +1701,9 @@ package com.vigza.markweave.api.dto.FileSystem;
 
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -1566,10 +1714,13 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class RecentDocVO {
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long docId;
     private String docName;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long ownerId;
     private String ownerName;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long size;
     private LocalDateTime lastViewTime;
 }
@@ -1637,19 +1788,28 @@ package com.vigza.markweave.api.dto.FileSystem;
 
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 import lombok.Data;
 
 @Data
 public class FsNodeVo {
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long docId;
     private String name;
     private Integer type;
     private String ownerName;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long size;
     private LocalDateTime updateTime;
     private LocalDateTime createTime;
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long ptId;
 }
+
 ---
 FILE: ./src/main/java/com/vigza/markweave/api/dto/Auth/LoginRequest.java
 package com.vigza.markweave.api.dto.Auth;
@@ -1697,6 +1857,9 @@ public class RegisterRequest {
 FILE: ./src/main/java/com/vigza/markweave/api/dto/Auth/AuthResponse.java
 package com.vigza.markweave.api.dto.Auth;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -1709,16 +1872,21 @@ import lombok.NoArgsConstructor;
 public class AuthResponse {
     private String token;
     private UserDTO user;
-    
+
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class UserDTO {
+        @JsonSerialize(using = ToStringSerializer.class)
         private Long id;
         private String account;
         private String nickname;
         private String headUrl;
+        @JsonSerialize(using = ToStringSerializer.class)
+        private Long userSpaceNodeId;
+        @JsonSerialize(using = ToStringSerializer.class)
+        private Long userShareSpaceNodeId;
         private long type;
     }
 }
@@ -1737,6 +1905,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import com.vigza.markweave.core.service.AlgorithmService;
 import com.vigza.markweave.core.service.CollaborationService;
 import com.vigza.markweave.core.service.FileSystemServiceImpl;
 import com.vigza.markweave.infrastructure.service.RedisService;
@@ -1760,10 +1929,13 @@ public class CollaborationHandler extends TextWebSocketHandler {
     private RedisService redisService;
 
     @Autowired
-    private FileSystemServiceImpl fsNodeService;
+    private FileSystemServiceImpl fsService;
 
     @Autowired
     private CollaborationService collaborationService;
+
+    @Autowired
+    private AlgorithmService algorithmSerivce;
 
     /**
      * 解决又广播时前同一个session还没处理完的问题
@@ -1786,7 +1958,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
 
     @Override
     public void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-
+        log.info("Received message: {} from session: {}", message.getPayload(), session.getId());
         JSONObject clientMsg = JSONUtil.parseObj(message.getPayload());
         Long docId = clientMsg.getLong("docId");
         String token = (String) session.getAttributes().get("token");
@@ -1806,7 +1978,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
         if ("get_new".equals(method)) {
             JSONObject mtdMsg = new JSONObject();
             mtdMsg.set("method", "get_new");
-            mtdMsg.set("text", redisService.getFullText(docId));
+            mtdMsg.set("text", fsService.getDocContent(docId));
             mtdMsg.set("version", redisService.getVersion(docId));
             safeSend(session, new TextMessage(mtdMsg.toString()));
             return;
@@ -1839,7 +2011,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
         }
 
         // 3. 处理编辑操作，计算出op，然后广播
-        collaborationService.processOperation(docId, clientMsg);
+        algorithmSerivce.processOperation(docId, clientMsg);
     }
 
     @Override
@@ -1858,9 +2030,10 @@ public class CollaborationHandler extends TextWebSocketHandler {
                     if(removed){
                         redisService.decrementDocConnections(docId);
                         if (redisService.getDocConnections(docId) <= 0) {
-                            String finalTarget = redisService.getFullText(docId);
+                            String finalTarget = fsService.getDocContent(docId);
                             if (finalTarget != null) {
-                                fsNodeService.updateDocContent(docId, finalTarget);
+                                log.info("保存文档{}",docId);
+                                fsService.updateDocContent(docId, finalTarget);
                                 redisService.clearRoom(docId);
                             }
                             map.remove(docId);
@@ -1878,9 +2051,9 @@ public class CollaborationHandler extends TextWebSocketHandler {
                 try {
                     String clientId = (String) session.getAttributes().get("clientId");
                     // 不要发给自己
-                    if (!clientId.equals(senderClientId)) {
+                    // if (!clientId.equals(senderClientId)) {
                         safeSend(session, new TextMessage(messagePayload));
-                    }
+                    // }
                 } catch (Exception e) {
                     log.error("广播消息到本地session失败，sessionId：{}", session.getId(), e);
                 }
@@ -1945,7 +2118,7 @@ public class CollaborationController {
     }
 
 
-    @PostMapping("/permission}")
+    @PostMapping("/permission")
     public Result<?> updatePermission(@RequestHeader("Authorization") String token ,@Valid @RequestBody PermissionRequest request){
         Long docId = request.getDocId();
         Long targetUserId = request.getTargetUserId();
@@ -2127,6 +2300,33 @@ public class FileSystemController {
             return Result.error(403, "校验不通过");
         }
     }
+
+    @GetMapping("/files/recycled/list")
+    Result<List<FsNodeVo>> getRecycledFiles(@RequestHeader("Authorization") String token) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.getRecycledFiles(token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/restore")
+    Result<?> restoreFile(@RequestHeader("Authorization") String token, @Valid @NotNull Long nodeId) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.restoreFile(nodeId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
+
+    @PostMapping("/file/delete/permanent")
+    Result<?> permanentlyDelete(@RequestHeader("Authorization") String token, @Valid @NotNull Long nodeId) {
+        if (jwtUtil.validateToken(token)) {
+            return fsService.permanentlyDelete(nodeId, token);
+        } else {
+            return Result.error(403, "校验不通过");
+        }
+    }
 }
 
 ---
@@ -2230,7 +2430,6 @@ public class Collaboration {
   private Long userId;
   private Long docId;
   private Integer permission;
-  private LocalDateTime updateTime;
 }
 
 ---
@@ -2284,7 +2483,10 @@ public class Doc {
 FILE: ./src/main/java/com/vigza/markweave/infrastructure/persistence/mapper/FsNodeMapper.java
 package com.vigza.markweave.infrastructure.persistence.mapper;
 
+import java.util.List;
+
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
@@ -2292,13 +2494,16 @@ import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
 
 public interface FsNodeMapper extends BaseMapper<FsNode> {
 
-    @Update("update fs_node set path = replace(path,#{oldPathPrefix},#{newPathPrefix})" + 
+    @Update("update fs_node set path = replace(path,#{oldPathPrefix},#{newPathPrefix})" +
         "where path like concat(#{oldPathPrefix},'%')"
     )
     public void updateChildPaths(@Param("oldPathPrefix") String oldPathPrefix,@Param("newPathPrefix") String newPathPrefix);
 
     @Update("update fs_node set recycled = 1 where path like concat(#{pathPrefix},'%')")
     public void recycleChildPaths(@Param("pathPrefix") String pathPrefix);
+
+    @Select("SELECT * FROM fs_node WHERE user_id = #{userId} AND recycled = 1 ORDER BY create_time DESC")
+    public List<FsNode> selectRecycledFiles(@Param("userId") Long userId);
 }
 
 ---
@@ -2365,6 +2570,7 @@ public class CollaborationMessageListener {
     @RabbitListener(queues = RabbitMqConfig.COLLABORATION_MSG_QUEUE)
     public void onMessage(String messagePayload){
         try{
+            log.info("Received collaboration message: {}", messagePayload);
             JSONObject msg = new JSONUtil().parseObj(messagePayload);
             Long docId = msg.getLong("docId"); 
             String senderClientId = msg.getStr("clientId");
@@ -2386,6 +2592,7 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.vigza.markweave.core.service.AlgorithmService;
 import com.vigza.markweave.core.service.CollaborationService;
 import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
 
@@ -2396,15 +2603,13 @@ import cn.hutool.json.JSONUtil;
 public class RetryMessageListener {
 
     @Autowired
-    private CollaborationService collaborationService;
-
-
+    private AlgorithmService algorithmSerivce;
 
     @RabbitListener(queues = RabbitMqConfig.RETRY_QUEUE)
     public void onMessage(String messagePayload){
         JSONObject msg = new JSONUtil().parseObj(messagePayload);
         Long docId = msg.getLong("docId");
-        collaborationService.processOperation(docId, msg);
+        algorithmSerivce.processOperation(docId, msg);
     }
 }
 
@@ -2419,7 +2624,6 @@ import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
-
 
 @Service
 public class RedisService {
@@ -2441,12 +2645,12 @@ public class RedisService {
 
     public Long getVersion(Long docId) {
         Object version = redisTemplate.opsForValue().get(DOC_VERSION_PREFIX + docId);
-        return version == null ? 0L : (Long) version;
+        return version == null ? 0L : ((Number) version).longValue();
     }
 
     public String getFullText(Long docId) {
         Object text = redisTemplate.opsForValue().get(DOC_TEXT_PREFIX + docId);
-        return text == null ? "" : text.toString();
+        return  text == null ? null : text.toString();
     }
 
     public void setFullText(Long docId, String fullText) {
@@ -2489,7 +2693,7 @@ public class RedisService {
         if (obj == null) {
             return 0L;
         }
-        Long count = (Long) obj;
+        Long count = ((Number) obj).longValue();
         if (count < 0) {
             redisTemplate.opsForValue().set(DOC_CONNECTIONS_PREFIX + docId, 0L);
         }
@@ -2500,8 +2704,9 @@ public class RedisService {
     public void incrementDocConnections(Long docId) {
         redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId);
     }
-    public void decrementDocConnections(Long docId){
-        redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId,-1);
+
+    public void decrementDocConnections(Long docId) {
+        redisTemplate.opsForValue().increment(DOC_CONNECTIONS_PREFIX + docId, -1);
     }
 }
 
@@ -2781,26 +2986,39 @@ public class WebSocketInterceptor implements HandshakeInterceptor {
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHander,
             Map<String, Object> attributes) throws Exception {
-        if (request instanceof ServletServerHttpRequest) {
-            ServletServerHttpRequest servletRequest = (ServletServerHttpRequest) request;
-            HttpServletRequest req = servletRequest.getServletRequest();
-
-            String token = req.getHeader("Authorization");
-            String clientId = req.getHeader("clientId");
-            if (jwtUtil.validateToken(token)) {
-                Long userId = jwtUtil.getUserFromToken(token).getId();
-                if (userId == null) {
-                    return false;
+        String token = null;
+        String clientId = null;
+        
+        
+        if ((token == null || token.isEmpty()) && request.getURI() != null) {
+            String query = request.getURI().getQuery();
+            if (query != null) {
+                String[] params = query.split("&");
+                for (String param : params) {
+                    String[] keyValue = param.split("=");
+                    if (keyValue.length == 2) {
+                        if ("token".equals(keyValue[0])) {
+                            token = java.net.URLDecoder.decode(keyValue[1], "UTF-8");
+                        } else if ("clientId".equals(keyValue[0])) {
+                            clientId = java.net.URLDecoder.decode(keyValue[1], "UTF-8");
+                        }
+                    }
                 }
-                attributes.put("userId", userId);
-                attributes.put("token", token);
-                attributes.put("clientId", clientId);
-            } else
+            }
+        }
+        
+        if (token != null && jwtUtil.validateToken(token)) {
+            Long userId = jwtUtil.getUserFromToken(token).getId();
+            if (userId == null) {
                 return false;
-
+            }
+            attributes.put("userId", userId);
+            attributes.put("token", token);
+            attributes.put("clientId", clientId);
+            return true;
         }
 
-        return true;
+        return false;
     }
 
     @Override

@@ -11,6 +11,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import com.vigza.markweave.core.service.AlgorithmService;
 import com.vigza.markweave.core.service.CollaborationService;
 import com.vigza.markweave.core.service.FileSystemServiceImpl;
 import com.vigza.markweave.infrastructure.service.RedisService;
@@ -34,10 +35,13 @@ public class CollaborationHandler extends TextWebSocketHandler {
     private RedisService redisService;
 
     @Autowired
-    private FileSystemServiceImpl fsNodeService;
+    private FileSystemServiceImpl fsService;
 
     @Autowired
     private CollaborationService collaborationService;
+
+    @Autowired
+    private AlgorithmService algorithmSerivce;
 
     /**
      * 解决又广播时前同一个session还没处理完的问题
@@ -80,7 +84,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
         if ("get_new".equals(method)) {
             JSONObject mtdMsg = new JSONObject();
             mtdMsg.set("method", "get_new");
-            mtdMsg.set("text", redisService.getFullText(docId));
+            mtdMsg.set("text", fsService.getDocContent(docId));
             mtdMsg.set("version", redisService.getVersion(docId));
             safeSend(session, new TextMessage(mtdMsg.toString()));
             return;
@@ -113,7 +117,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
         }
 
         // 3. 处理编辑操作，计算出op，然后广播
-        collaborationService.processOperation(docId, clientMsg);
+        algorithmSerivce.processOperation(docId, clientMsg);
     }
 
     @Override
@@ -132,9 +136,10 @@ public class CollaborationHandler extends TextWebSocketHandler {
                     if(removed){
                         redisService.decrementDocConnections(docId);
                         if (redisService.getDocConnections(docId) <= 0) {
-                            String finalTarget = redisService.getFullText(docId);
+                            String finalTarget = fsService.getDocContent(docId);
                             if (finalTarget != null) {
-                                fsNodeService.updateDocContent(docId, finalTarget);
+                                log.info("保存文档{}",docId);
+                                fsService.updateDocContent(docId, finalTarget);
                                 redisService.clearRoom(docId);
                             }
                             map.remove(docId);

@@ -26,6 +26,8 @@ public interface FileSystemService {
     // 在 websocket 中调用
     void updateDocContent(Long docId, String content);
 
+    String getDocContent(Long docId);
+
     // 应当在用户打开文档时，关闭文章后调用
     Result<?> updateViewTime(Long nodeId,String token);
 

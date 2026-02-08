@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.vigza.markweave.common.Result;
+import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.service.RedisService;
 
@@ -23,7 +24,7 @@ public class MarkdownAiServiceImpl implements MarkdownAiService {
     private AiService aiService;
 
     @Autowired
-    private RedisService redisService;
+    private FileSystemService fileSystemService;
 
     @Autowired
     private CollaborationService collaborationService;
@@ -35,7 +36,7 @@ public class MarkdownAiServiceImpl implements MarkdownAiService {
             return Result.error(403, "无权限");
         }
 
-        String content = redisService.getFullText(docId);
+        String content = fileSystemService.getDocContent(docId);
 
         // 1. 定义 Prompt 模板，明确要求美化 Markdown 排版并修正语法
         String template = "你是一个专业的 Markdown 排版专家。请对以下 Markdown 内容进行美化和修正：\n" +
