@@ -227,6 +227,7 @@ public class FileSystemServiceImpl implements FileSystemService {
     private void copyBaseProperties(FsNode source, FsNodeVo target) {
         target.setId(source.getId());
         target.setType(source.getType());
+        target.setDocId(source.getDocId());
         target.setName(source.getName());
         target.setSize(source.getSize());
         target.setUpdateTime(source.getUpdateTime());
@@ -309,6 +310,7 @@ public class FileSystemServiceImpl implements FileSystemService {
                         .ownerId(targetNode.getUserId())
                         .size(targetNode.getSize())
                         .lastViewTime(fsNode.getLastViewTime()) // 依然用当前用户的查看时间
+                        .ownerName(targetNode.getDocOwner())
                         .build();
                 })
                 .filter(item -> item != null)

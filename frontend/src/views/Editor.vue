@@ -13,7 +13,6 @@
     <CollaborationManager 
       ref="collaborationManager"
       :doc-id="docId"
-      @refresh="loadCollaborators"
     />
   </div>
 </template>
@@ -26,7 +25,6 @@ import * as monaco from 'monaco-editor';
 import { Queue, TextOperation } from '@/js/common.js';
 import EditorToolbar from '@/components/EditorToolbar.vue';
 import CollaborationManager from '@/components/CollaborationManager.vue';
-import { websocketService } from '@/services';
 
 const route = useRoute();
 const docId = ref(parseInt(route.params.docId) || 123);
@@ -43,6 +41,7 @@ let waitStatus = false;
 const waitQueue = new Queue(1024);
 const bufferMap = ref({});
 let isApplyingRemote = false;
+let contentChangeDisposable = null;
 
 const initEditor = () => {
   editorInstance.value = monaco.editor.create(editorContainer.value, {
@@ -55,14 +54,16 @@ const initEditor = () => {
     wordWrap: 'on'
   });
 
-  editorInstance.value.onDidChangeModelContent((e) => {
-    if (isApplyingRemote) return;
+  contentChangeDisposable = editorInstance.value.onDidChangeModelContent((e) => {
+    if (isApplyingRemote || !ws || ws.readyState !== WebSocket.OPEN || waitQueue.size >= 1024) return;
 
     const model = editorInstance.value.getModel();
+    if (!model || !e.changes?.length) return;
+
     const operation = new TextOperation();
-    let currentLength = model.getValueLength();
+    const currentLength = model.getValueLength();
     let delta = 0;
-    
+
     e.changes.forEach(c => {
       delta += (c.text.length - c.rangeLength);
     });
@@ -80,7 +81,7 @@ const initEditor = () => {
       if (rangeLength > 0) {
         operation.delete(rangeLength);
       }
-      if (text !== "") {
+      if (text !== '') {
         operation.insert(text);
       }
       lastOffset = rangeOffset + rangeLength;
@@ -90,8 +91,7 @@ const initEditor = () => {
       operation.retain(originalLength - lastOffset);
     }
 
-    if (operation.baseLength !== originalLength) {
-      console.error("OT BaseLength 校验失败！");
+    if (operation.baseLength !== originalLength || operation.isNoop()) {
       return;
     }
 
@@ -107,7 +107,7 @@ const sendOp = (op) => {
     op: op
   };
   waitQueue.push(msg);
-  if (waitStatus == false) {
+  if (waitStatus === false && ws && ws.readyState === WebSocket.OPEN) {
     waitStatus = true;
     ws.send(JSON.stringify(msg));
   }
@@ -132,16 +132,16 @@ const applyRemoteOp = (msg) => {
   }
 
   const model = editorInstance.value.getModel();
-  let remoteOp = new TextOperation.fromJSON(msg.op);
+  let remoteOp = TextOperation.fromJSON(msg.op);
 
   for (const localMsg of waitQueue) {
     if (localMsg.clientId < msg.clientId) {
-      let localOp = new TextOperation.fromJSON(localMsg.op);
+      let localOp = TextOperation.fromJSON(localMsg.op);
       const pair = TextOperation.transform(localOp, remoteOp);
       localMsg.op = pair[0].toJSON();
       remoteOp = pair[1];
     } else {
-      let localOp = new TextOperation.fromJSON(localMsg.op);
+      let localOp = TextOperation.fromJSON(localMsg.op);
       const pair = TextOperation.transform(remoteOp, localOp);
       remoteOp = pair[0];
       localMsg.op = pair[1].toJSON();
@@ -196,6 +196,11 @@ const connectWebSocket = () => {
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
 
+    if (msg.error === 'need_get_new') {
+      ws.send(JSON.stringify({ docId: docId.value, method: 'get_new' }));
+      return;
+    }
+
     if (msg.method === 'get_new') {
       isApplyingRemote = true;
       currentVersion = msg.version;
@@ -236,7 +241,9 @@ const startPullHistory = () => {
     const versions = Object.keys(bufferMap.value);
     if (versions.length === 0) return;
     console.warn('检测到版本断档，请求补发...');
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({
+      docId: docId.value,
       method: 'pull_history',
       version: currentVersion
     }));
@@ -351,6 +358,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (contentChangeDisposable) {
+    contentChangeDisposable.dispose();
+  }
   if (editorInstance.value) {
     editorInstance.value.dispose();
   }

@@ -11,6 +11,8 @@ import lombok.Data;
 public class FsNodeVo {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long docId;
     private String name;
     private Integer type;
     private String ownerName;

@@ -52,12 +52,28 @@
         <el-button type="primary" @click="handleMove" :loading="moving">确定</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-if="!trashMode" v-model="shortcutDialogVisible" title="创建快捷方式" width="420px">
+      <p class="dialog-desc">将为 <strong>{{ shortcutForm.sourceName }}</strong> 创建快捷方式到所选文件夹。</p>
+      <el-tree
+        :data="folderTree"
+        :props="{ label: 'name', children: 'children' }"
+        default-expand-all
+        highlight-current
+        @node-click="handleShortcutFolderSelect"
+      />
+      <template #footer>
+        <el-button @click="shortcutDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleCreateShortcut" :loading="shortcutting">确定</el-button>
+      </template>
+    </el-dialog>
+
   </div>
 </template>
 
 <script setup>
 import { ref, reactive } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { fileSystemService } from '@/services';
 
 const emit = defineEmits(['refresh']);
@@ -76,10 +92,12 @@ const props = defineProps({
 const createDialogVisible = ref(false);
 const renameDialogVisible = ref(false);
 const moveDialogVisible = ref(false);
+const shortcutDialogVisible = ref(false);
 
 const creating = ref(false);
 const renaming = ref(false);
 const moving = ref(false);
+const shortcutting = ref(false);
 
 const createForm = reactive({
   fileName: '',
@@ -96,6 +114,12 @@ const moveForm = reactive({
   targetFolderId: null
 });
 
+const shortcutForm = reactive({
+  srcNodeId: null,
+  targetFolderId: null,
+  sourceName: ''
+});
+
 const folderTree = ref([]);
 
 const showCreateDialog = () => {
@@ -110,20 +134,42 @@ const showRenameDialog = (node) => {
   renameDialogVisible.value = true;
 };
 
+const loadFolderTree = async () => {
+  const userSpaceNodeId = getUserSpaceNodeId();
+  const targetRootId = userSpaceNodeId || 0;
+  const response = await fileSystemService.listFiles(targetRootId);
+  if (response.code === 200) {
+    folderTree.value = buildFolderTree(response.data || []);
+    return;
+  }
+  throw new Error(response.message || '加载文件夹失败');
+};
+
 const showMoveDialog = async (node) => {
   moveForm.nodeId = node.id;
   moveForm.targetFolderId = null;
-  
+
   try {
-    const response = await fileSystemService.listFiles(0);
-    if (response.code === 200) {
-      folderTree.value = buildFolderTree(response.data || []);
-    }
+    await loadFolderTree();
   } catch (error) {
-    ElMessage.error('加载文件夹失败');
+    ElMessage.error(error.message || '加载文件夹失败');
   }
-  
+
   moveDialogVisible.value = true;
+};
+
+const showShortcutDialog = async (node) => {
+  shortcutForm.srcNodeId = node.ptId || node.id;
+  shortcutForm.targetFolderId = null;
+  shortcutForm.sourceName = node.name;
+
+  try {
+    await loadFolderTree();
+  } catch (error) {
+    ElMessage.error(error.message || '加载文件夹失败');
+  }
+
+  shortcutDialogVisible.value = true;
 };
 
 const buildFolderTree = (nodes) => {
@@ -137,6 +183,10 @@ const buildFolderTree = (nodes) => {
 
 const handleFolderSelect = (data) => {
   moveForm.targetFolderId = data.id;
+};
+
+const handleShortcutFolderSelect = (data) => {
+  shortcutForm.targetFolderId = data.id;
 };
 
 const getUserSpaceNodeId = () => {
@@ -221,6 +271,29 @@ const handleMove = async () => {
   }
 };
 
+const handleCreateShortcut = async () => {
+  if (!shortcutForm.targetFolderId) {
+    ElMessage.warning('请选择目标文件夹');
+    return;
+  }
+
+  shortcutting.value = true;
+  try {
+    const response = await fileSystemService.createShortcut(shortcutForm.targetFolderId, shortcutForm.srcNodeId);
+    if (response.code === 200) {
+      ElMessage.success('快捷方式创建成功');
+      shortcutDialogVisible.value = false;
+      emit('refresh');
+    } else {
+      ElMessage.error(response.message || '快捷方式创建失败');
+    }
+  } catch (error) {
+    ElMessage.error('快捷方式创建失败: ' + (error.response?.data?.message || error.message));
+  } finally {
+    shortcutting.value = false;
+  }
+};
+
 const handleDelete = async (node) => {
   try {
     await ElMessageBox.confirm('确定要将该文档移到回收站吗？', '确认', {
@@ -248,6 +321,7 @@ defineExpose({
   showCreateDialog,
   showRenameDialog,
   showMoveDialog,
+  showShortcutDialog,
   handleDelete
 });
 </script>
@@ -257,5 +331,10 @@ defineExpose({
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.dialog-desc {
+  margin: 0 0 12px;
+  color: #6b7280;
 }
 </style>

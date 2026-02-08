@@ -128,9 +128,9 @@
         </div>
 
         <div class="content-header">
-          <div class="tabs">
+          <div v-if="showTabs" class="tabs">
             <button 
-              v-for="tab in tabs" 
+              v-for="tab in availableTabs" 
               :key="tab.id"
               :class="['tab-btn', { active: activeTab === tab.id }]"
               @click="activeTab = tab.id"
@@ -186,7 +186,7 @@
               </template>
             </el-table-column>
             
-            <el-table-column prop="owner" label="所有者" width="150">
+            <el-table-column prop="updateTime" label="最近访问" width="180">
               <template #default="{ row }">
                 {{ formatDate(row.lastViewed || row.updateTime) }}
               </template>
@@ -220,6 +220,7 @@
                       <el-dropdown-menu>
                         <el-dropdown-item command="rename" :disabled="row.type == 1">重命名</el-dropdown-item>
                         <el-dropdown-item command="move" :disabled="row.type == 1">移动</el-dropdown-item>
+                        <el-dropdown-item command="shortcut" :disabled="row.type == 1">创建快捷方式</el-dropdown-item>
                         <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -254,7 +255,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, h, defineComponent } from 'vue';
+import { ref, computed, onMounted, onUnmounted, h, defineComponent } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { fileSystemService, authService } from '@/services';
@@ -364,6 +365,7 @@ export default {
     const cloudDriveNodeId = ref(null);
     const shareDriveNodeId = ref(null);
     const trashMode = ref(false);
+    const activeFilter = ref('all');
 
     const getUserSpaceNodeId = () => {
       const user = authService.getUser();
@@ -412,6 +414,8 @@ export default {
     const handleNavClick = async (navId) => {
       activeNav.value = navId;
       trashMode.value = false;
+      activeFilter.value = 'all';
+      activeTab.value = 'recent';
 
       if (navId === 'home') {
         isInCloudDrive.value = false;
@@ -510,21 +514,41 @@ export default {
       { id: 'recent', label: '最近' },
       { id: 'all', label: '全部' }
     ];
+
+    const showTabs = computed(() => activeNav.value !== 'cloud' && activeNav.value !== 'share' && !trashMode.value);
+
+    const availableTabs = computed(() => {
+      if (!showTabs.value) {
+        return [];
+      }
+      if (activeNav.value === 'home') {
+        return tabs.filter(tab => tab.id === 'recent');
+      }
+      return tabs;
+    });
     
     const storagePercentage = computed(() => Math.round((usedStorage.value / totalStorage) * 100));
     
     const filteredDocuments = computed(() => {
       let docs = [...documents.value];
-      
+
+      if (activeFilter.value === 'week') {
+        const now = Date.now();
+        docs = docs.filter(doc => now - new Date(doc.lastViewed || doc.updateTime).getTime() <= 7 * 24 * 60 * 60 * 1000);
+      } else if (activeFilter.value === 'month') {
+        const now = Date.now();
+        docs = docs.filter(doc => now - new Date(doc.lastViewed || doc.updateTime).getTime() <= 30 * 24 * 60 * 60 * 1000);
+      }
+
       if (searchQuery.value) {
         const query = searchQuery.value.toLowerCase();
-        docs = docs.filter(doc => 
-          doc.name.toLowerCase().includes(query) ||
+        docs = docs.filter(doc =>
+          (doc.name || '').toLowerCase().includes(query) ||
           (doc.ownerName && doc.ownerName.toLowerCase().includes(query))
         );
       }
-      
-      return docs.sort((a, b) => new Date(b.updateTime) - new Date(a.updateTime));
+
+      return docs.sort((a, b) => new Date(b.lastViewed || b.updateTime) - new Date(a.lastViewed || a.updateTime));
     });
     
     const userAvatar = computed(() => {
@@ -598,7 +622,7 @@ export default {
     };
     
     const handleFilterCommand = (command) => {
-      ElMessage.info('筛选: ' + command);
+      activeFilter.value = command;
     };
     
     const handleRowClick = async (row) => {
@@ -607,13 +631,14 @@ export default {
           return;
         }
 
-        await fileSystemService.updateViewTime(row.id);
+        const viewNodeId = row.ptId || row.id;
+        await fileSystemService.updateViewTime(viewNodeId);
 
         if (row.type == 1) {
           currentFolderId.value = row.id;
           loadFiles();
         } else if (activeNav.value === 'home' || activeNav.value === 'cloud' || activeNav.value === 'share') {
-          router.push(`/editor/${row.id}`);
+          router.push(`/editor/${row.docId || row.id}`);
         }
       } catch (error) {
         ElMessage.error('操作失败: ' + (error.response?.data?.message || error.message));
@@ -663,7 +688,7 @@ export default {
     const refreshCurrent = () => {
       if (trashMode.value) {
         loadTrashFiles();
-      } else if (activeNav.value === 'cloud') {
+      } else if (activeNav.value === 'cloud' || activeNav.value === 'share') {
         loadFiles();
       } else {
         loadRecentDocs();
@@ -677,6 +702,9 @@ export default {
           break;
         case 'move':
           fileManager.value?.showMoveDialog(row);
+          break;
+        case 'shortcut':
+          fileManager.value?.showShortcutDialog(row);
           break;
         case 'delete':
           fileManager.value?.handleDelete(row);
@@ -795,15 +823,20 @@ export default {
       }
     };
     
+    const keydownHandler = (e) => {
+      if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        focusSearch(e);
+      }
+    };
+
     onMounted(() => {
-      document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'f') {
-          e.preventDefault();
-          focusSearch(e);
-        }
-      });
-      
+      document.addEventListener('keydown', keydownHandler);
       loadRecentDocs();
+    });
+
+    onUnmounted(() => {
+      document.removeEventListener('keydown', keydownHandler);
     });
     
     return {
@@ -811,7 +844,8 @@ export default {
       activeNav,
       activeTab,
       navItems,
-      tabs,
+      availableTabs,
+      showTabs,
       usedStorage,
       totalStorage,
       storagePercentage,
