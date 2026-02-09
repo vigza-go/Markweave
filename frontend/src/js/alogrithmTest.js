@@ -1,6 +1,6 @@
 // 该js用于测试该项目的ot算法是否正确
 
-import { TextOperation } from '../js/common.js';
+import { TextOperation } from '@/js/common.js';
 
 /**
  * 模拟环境配置

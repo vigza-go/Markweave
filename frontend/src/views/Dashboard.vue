@@ -91,19 +91,17 @@
         <FileManager ref="fileManager" :current-folder-id="currentFolderId" :trash-mode="trashMode"
           @refresh="refreshCurrent" />
 
-        <div v-if="breadcrumb.length > 0" class="breadcrumb">
+        <div v-if="breadcrumb.length > 0 && activeNav !== 'home'" class="breadcrumb">
           <span v-if="activeNav === 'cloud'" class="breadcrumb-item" @click="handleBackToCloud">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
               <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
             </svg>
-            我的云盘
           </span>
           <span v-else-if="activeNav === 'share'" class="breadcrumb-item" @click="handleBackToShare">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
               <circle cx="9" cy="7" r="4" />
             </svg>
-            我的共享
           </span>
           <template v-for="(item, index) in breadcrumb" :key="item.id">
             <span v-if="index > 0 || (activeNav !== 'cloud' && activeNav !== 'share')"
@@ -151,7 +149,8 @@
                 <div class="doc-name-cell">
                   <component :is="getFileIcon(row.type)" class="doc-icon" />
                   <span v-if="isFolder(row)" class="doc-name">{{ row.name || row.docName || '-' }}</span>
-                  <a v-else class="doc-name doc-link" href="#" @click.stop.prevent="openDocument(row, false)">{{ row.name || row.docName || '-' }}</a>
+                  <a v-else class="doc-name doc-link" href="#" @click.stop.prevent="openDocument(row, false)">{{
+                    row.name || row.docName || '-' }}</a>
                   <button v-if="isFile(row)" class="open-tab-btn" @click.stop="openDocument(row, true)">新标签</button>
                 </div>
               </template>
@@ -198,9 +197,9 @@
                     </button>
                     <template #dropdown>
                       <el-dropdown-menu>
-                        <el-dropdown-item command="rename" >重命名</el-dropdown-item>
-                        <el-dropdown-item command="move" >移动</el-dropdown-item>
-                        <el-dropdown-item command="shortcut" >创建快捷方式</el-dropdown-item>
+                        <el-dropdown-item command="rename">重命名</el-dropdown-item>
+                        <el-dropdown-item command="move">移动</el-dropdown-item>
+                        <el-dropdown-item command="shortcut">创建快捷方式</el-dropdown-item>
                         <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -337,7 +336,7 @@ export default {
       } else if (navId === 'cloud') {
         isInCloudDrive.value = true;
         let spaceNodeId = getUserSpaceNodeId();
-        
+
         if (!spaceNodeId) {
           spaceNodeId = await findMyCloudFolder();
         }
@@ -351,6 +350,7 @@ export default {
         currentFolderId.value = spaceNodeId;
         currentFolderName.value = '我的云盘';
         folderPathStack.value = [];
+        pushIntoFolderPathStack();
         loadFiles();
       } else if (navId === 'share') {
         isInCloudDrive.value = true;
@@ -368,6 +368,7 @@ export default {
         currentFolderId.value = spaceNodeId;
         currentFolderName.value = '我的共享';
         folderPathStack.value = [];
+        pushIntoFolderPathStack();
         loadFiles();
       } else if (navId === 'trash') {
         isInCloudDrive.value = false;
@@ -596,12 +597,15 @@ export default {
         await fileSystemService.updateViewTime(viewNodeId);
 
         if (isFolder(row)) {
-          folderPathStack.value.push({
-            id: currentFolderId.value,
-            name: currentFolderName.value
-          });
+          let lst = folderPathStack.value.length - 1;
+          console.log(JSON.stringify(folderPathStack.value))
           currentFolderId.value = row.id;
           currentFolderName.value = row.name || row.docName || '';
+          if ((lst >= 0 && (folderPathStack.value[lst].id !== currentFolderId.value))) {
+            pushIntoFolderPathStack();
+          }
+          console.log(JSON.stringify(folderPathStack.value))
+
           loadFiles();
         } else if (isFile(row)) {
           openDocument(row, Boolean(event?.ctrlKey || event?.metaKey));
@@ -658,7 +662,7 @@ export default {
         loadTrashFiles();
       } else if (activeNav.value === 'cloud' || activeNav.value === 'share') {
         loadFiles();
-      } else {
+      } else if (activeNav.value === 'home') {
         loadRecentDocs();
       }
     };
@@ -707,35 +711,21 @@ export default {
 
     const loadBreadcrumb = () => {
       if (activeNav.value === 'cloud' && cloudDriveNodeId.value) {
-        breadcrumb.value = [
-          { id: cloudDriveNodeId.value, name: '我的云盘' },
-          ...folderPathStack.value
-        ];
-        if (String(currentFolderId.value) !== String(cloudDriveNodeId.value)) {
-          breadcrumb.value.push({
-            id: currentFolderId.value,
-            name: currentFolderName.value
-          });
-        }
+        breadcrumb.value = folderPathStack.value;
       } else if (activeNav.value === 'share' && shareDriveNodeId.value) {
-        breadcrumb.value = [
-          { id: shareDriveNodeId.value, name: '我的共享' },
-          ...folderPathStack.value
-        ];
-        if (String(currentFolderId.value) !== String(shareDriveNodeId.value)) {
-          breadcrumb.value.push({
-            id: currentFolderId.value,
-            name: currentFolderName.value
-          });
-        }
+        breadcrumb.value = folderPathStack.value;
       } else {
         breadcrumb.value = [];
       }
     };
 
     const handleBreadcrumbClick = (folderId) => {
-      if (folderId === cloudDriveNodeId.value || folderId === shareDriveNodeId.value) {
+      if (folderId === cloudDriveNodeId.value) {
         handleBackToCloud();
+        return;
+      }
+      if (folderId === shareDriveNodeId.value) {
+        handleBackToShare()
         return;
       }
       const stackIndex = folderPathStack.value.findIndex(item => item.id === folderId);
@@ -745,30 +735,35 @@ export default {
         currentFolderId.value = targetFolder.id;
         currentFolderName.value = targetFolder.name;
         loadFiles();
-        loadBreadcrumb();
         return;
       }
       currentFolderId.value = folderId;
       loadFiles();
-      loadBreadcrumb();
     };
 
     const handleBackToCloud = () => {
+
       activeNav.value = 'cloud';
       currentFolderId.value = cloudDriveNodeId.value;
       currentFolderName.value = '我的云盘';
       folderPathStack.value = [];
+      pushIntoFolderPathStack();
       loadFiles();
-      loadBreadcrumb();
     };
+    const pushIntoFolderPathStack = () => {
+      folderPathStack.value.push({
+        id: currentFolderId.value,
+        name: currentFolderName.value
+      });
+    }
 
     const handleBackToShare = () => {
       activeNav.value = 'share';
       currentFolderId.value = shareDriveNodeId.value;
       currentFolderName.value = '我的共享';
       folderPathStack.value = [];
+      pushIntoFolderPathStack();
       loadFiles();
-      loadBreadcrumb();
     };
 
     const loadRecentDocs = async () => {
@@ -915,11 +910,14 @@ export default {
   margin-bottom: 24px;
 }
 
-.create-dropdown { width: 100%; }
+.create-dropdown {
+  width: 100%;
+}
 
 .btn-new,
 .btn-upload {
-  width: 100%; /* 新增这一行 */
+  width: 100%;
+  /* 新增这一行 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1343,9 +1341,24 @@ export default {
   color: white !important;
 }
 
-.doc-link { color: inherit; text-decoration: none; }
-.open-tab-btn { margin-left: 8px; background: transparent; border: 1px solid #4b5563; color: #9ca3af; border-radius: 4px; font-size: 12px; padding: 1px 6px; cursor: pointer; }
-.open-tab-btn:hover { color: #fff; border-color: #6b7280; }
+.doc-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.open-tab-btn {
+  margin-left: 8px;
+  background: transparent;
+  border: 1px solid #4b5563;
+  color: #9ca3af;
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+
+.open-tab-btn:hover {
+  color: #fff;
+  border-color: #6b7280;
+}
 </style>
-
-
