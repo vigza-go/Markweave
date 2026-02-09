@@ -16,8 +16,8 @@
           </button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="new-file">新建 Markdown 文档</el-dropdown-item>
-              <el-dropdown-item command="new-folder">新建文件夹</el-dropdown-item>
+              <el-dropdown-item command="new-file">Markdown 文档</el-dropdown-item>
+              <el-dropdown-item command="new-folder">文件夹</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -88,8 +88,14 @@
 
       <!-- 内容区域 -->
       <div class="content-area">
-        <FileManager ref="fileManager" :current-folder-id="currentFolderId" :trash-mode="trashMode"
+        <FileManager ref="fileManager" :current-folder-id="currentFolderId" :user-space-node-id="userSpaceNodeId" :cloud-drive-node-id="cloudDriveNodeId" :trash-mode="trashMode"
           @refresh="refreshCurrent" />
+
+        <FolderSelector
+          v-model="folderSelectorVisible"
+          :root-node-id="userSpaceNodeId"
+          @select="handleFolderSelect"
+        />
 
         <div v-if="breadcrumb.length > 0 && activeNav !== 'home'" class="breadcrumb">
           <span v-if="activeNav === 'cloud'" class="breadcrumb-item" @click="handleBackToCloud">
@@ -120,6 +126,21 @@
           </div>
 
           <div class="filter-section">
+            <el-dropdown trigger="click" @command="handleCreateCommand">
+              <button class="filter-btn" :disabled="!currentFolderId || currentFolderId === 0">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                新建
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="new-file">Markdown 文档</el-dropdown-item>
+                  <el-dropdown-item command="new-folder">文件夹</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+
             <el-dropdown trigger="click" @command="handleFilterCommand">
               <button class="filter-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -234,11 +255,12 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted, h, defineComponent } from 'vue';
+import { ref, computed, onMounted, onUnmounted, h, defineComponent, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { fileSystemService, authService } from '@/services';
-import FileManager from '@/components/FileManager.vue';
+import FileManager from '../components/FileManager.vue';
+import FolderSelector from '../components/FolderSelector.vue';
 import { FS_NODE_TYPE, isFile, isFolder, isShortcut } from '@/constants/fsNode';
 
 const folderIcon = defineComponent({
@@ -272,7 +294,8 @@ const fileIcons = {
 export default {
   name: 'Dashboard',
   components: {
-    FileManager
+    FileManager,
+    FolderSelector
   },
   setup() {
     const router = useRouter();
@@ -293,6 +316,9 @@ export default {
     const shareDriveNodeId = ref(null);
     const trashMode = ref(false);
     const activeFilter = ref('all');
+    const userSpaceNodeId = ref(null);
+    const folderSelectorVisible = ref(false);
+    const pendingCreateType = ref(null);
 
     const getUserSpaceNodeId = () => {
       const user = authService.getUser();
@@ -541,15 +567,30 @@ export default {
     };
 
     const handleCreate = () => {
+      if (!currentFolderId.value || currentFolderId.value === 0) {
+        ElMessage.warning('请先进入云盘目录');
+        return;
+      }
       fileManager.value?.showCreateDialog(FS_NODE_TYPE.FILE);
     };
 
     const handleCreateCommand = (command) => {
-      if (command === "new-folder") {
-        fileManager.value?.showCreateDialog(FS_NODE_TYPE.FOLDER);
-      } else {
-        fileManager.value?.showCreateDialog(FS_NODE_TYPE.FILE);
+      if (!userSpaceNodeId.value) {
+        ElMessage.warning('请先进入云盘');
+        return;
       }
+      
+      pendingCreateType.value = command === 'new-folder' ? FS_NODE_TYPE.FOLDER : FS_NODE_TYPE.FILE;
+      nextTick(() => {
+        folderSelectorVisible.value = true;
+      });
+    };
+
+    const handleFolderSelect = ({ folderId }) => {
+      folderSelectorVisible.value = false;
+      setTimeout(() => {
+        fileManager.value?.showCreateDialog(pendingCreateType.value, folderId);
+      }, 100);
     };
 
     const handleUpload = () => {
@@ -812,6 +853,8 @@ export default {
     };
 
     onMounted(() => {
+      const spaceId = getUserSpaceNodeId();
+      userSpaceNodeId.value = spaceId;
       document.addEventListener('keydown', keydownHandler);
       loadRecentDocs();
     });
@@ -837,6 +880,10 @@ export default {
       currentFolderId,
       currentFolderName,
       folderPathStack,
+      cloudDriveNodeId,
+      userSpaceNodeId,
+      folderSelectorVisible,
+      handleFolderSelect,
       getFileIcon,
       formatFileSize,
       formatSize,

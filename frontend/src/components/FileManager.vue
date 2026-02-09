@@ -1,70 +1,60 @@
 <template>
-  <el-dialog v-model="dialogVisible" :title="dialogTitle" width="400px" :close-on-click-modal="false">
-    <el-form :model="formData" :rules="rules" ref="formRef" label-width="0">
-      <el-form-item prop="fileName">
-        <el-input v-model="formData.fileName" :placeholder="namePlaceholder" maxlength="100" show-word-limit
-          autofocus />
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="dialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="handleSubmit" :loading="loading">确定</el-button>
-    </template>
-  </el-dialog>
-
-  <el-dialog v-model="renameDialogVisible" title="重命名" width="400px" :close-on-click-modal="false">
-    <el-form :model="renameFormData" :rules="renameRules" ref="renameFormRef" label-width="0">
-      <el-form-item prop="newName">
-        <el-input v-model="renameFormData.newName" placeholder="请输入新名称" maxlength="100" show-word-limit autofocus />
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="renameDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="handleRenameSubmit" :loading="renameLoading">确定</el-button>
-    </template>
-  </el-dialog>
-
-  <el-dialog v-model="moveDialogVisible" title="移动到" width="400px" :close-on-click-modal="false">
-    <el-tree ref="treeRef" :data="folderTree" :props="{ label: 'name', children: 'children' }" default-expand-all
-      highlight-current check-strictly :expand-on-click-node="false" @node-click="handleTreeNodeClick">
-      <template #default="{ node, data }">
-        <div class="tree-node">
-          <svg v-if="data.type === 2" class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b"
-            stroke-width="2">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-          </svg>
-          <span>{{ node.label }}</span>
-        </div>
+  <div>
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="400px" :close-on-click-modal="false">
+      <el-form :model="formData" :rules="rules" ref="formRef" label-width="0">
+        <el-form-item prop="fileName">
+          <el-input v-model="formData.fileName" :placeholder="namePlaceholder" maxlength="100" show-word-limit
+            autofocus />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="loading">确定</el-button>
       </template>
-    </el-tree>
-    <template #footer>
-      <el-button @click="moveDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="handleMoveSubmit" :loading="moveLoading">确定</el-button>
-    </template>
-  </el-dialog>
+    </el-dialog>
 
-  <el-dialog v-model="shortcutDialogVisible" title="创建快捷方式" width="400px" :close-on-click-modal="false">
-    <el-form :model="shortcutFormData" :rules="shortcutRules" ref="shortcutFormRef" label-width="0">
-      <el-form-item prop="faId">
-        <el-tree ref="shortcutTreeRef" :data="folderTree" :props="{ label: 'name', children: 'children' }" default-expand-all
-          highlight-current check-strictly :expand-on-click-node="false" @node-click="handleShortcutTreeNodeClick">
-          <template #default="{ node, data }">
-            <div class="tree-node">
-              <svg v-if="data.type === 2" class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b"
-                stroke-width="2">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-              <span>{{ node.label }}</span>
-            </div>
-          </template>
-        </el-tree>
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="shortcutDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="handleShortcutSubmit" :loading="shortcutLoading">确定</el-button>
-    </template>
-  </el-dialog>
+    <el-dialog v-model="renameDialogVisible" title="重命名" width="400px" :close-on-click-modal="false">
+      <el-form :model="renameFormData" :rules="renameRules" ref="renameFormRef" label-width="0">
+        <el-form-item prop="newName">
+          <el-input v-model="renameFormData.newName" placeholder="请输入新名称" maxlength="100" show-word-limit autofocus />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="renameDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleRenameSubmit" :loading="renameLoading">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <FolderSelector
+      v-model="folderSelectorVisible"
+      :root-node-id="userSpaceNodeId"
+      :exclude-node-id="currentMoveRow?.id"
+      @select="handleFolderSelect"
+    />
+
+    <el-dialog v-model="shortcutDialogVisible" title="创建快捷方式" width="400px" :close-on-click-modal="false">
+      <el-form :model="shortcutFormData" :rules="shortcutRules" ref="shortcutFormRef" label-width="0">
+        <el-form-item prop="faId">
+          <el-tree ref="shortcutTreeRef" :data="folderTree" :props="{ label: 'name', children: 'children' }" default-expand-all
+            highlight-current check-strictly :expand-on-click-node="false" @node-click="handleShortcutTreeNodeClick">
+            <template #default="{ node, data }">
+              <div class="tree-node">
+                <svg v-if="data.type === 2" class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b"
+                  stroke-width="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+                <span>{{ node.label }}</span>
+              </div>
+            </template>
+          </el-tree>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="shortcutDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleShortcutSubmit" :loading="shortcutLoading">确定</el-button>
+      </template>
+    </el-dialog>
+  </div>
 </template>
 
 <script>
@@ -72,11 +62,23 @@ import { ref, computed, nextTick, watch, toRef } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { fileSystemService } from '@/services';
 import { FS_NODE_TYPE, isFolder, isFile } from '@/constants/fsNode';
+import FolderSelector from './FolderSelector.vue';
 
 export default {
   name: 'FileManager',
+  components: {
+    FolderSelector
+  },
   props: {
     currentFolderId: {
+      type: [String, Number],
+      default: null
+    },
+    userSpaceNodeId: {
+      type: [String, Number],
+      default: null
+    },
+    cloudDriveNodeId: {
       type: [String, Number],
       default: null
     },
@@ -90,7 +92,6 @@ export default {
     const formRef = ref(null);
     const renameFormRef = ref(null);
     const shortcutFormRef = ref(null);
-    const treeRef = ref(null);
     const shortcutTreeRef = ref(null);
 
     const dialogVisible = ref(false);
@@ -103,6 +104,9 @@ export default {
     });
 
     const currentFolderIdRef = toRef(props, 'currentFolderId');
+    const cloudDriveNodeIdRef = toRef(props, 'cloudDriveNodeId');
+
+    const userSpaceNodeId = computed(() => props.userSpaceNodeId);
 
     const rules = {
       fileName: [
@@ -132,12 +136,11 @@ export default {
       ]
     };
 
-    const moveDialogVisible = ref(false);
-    const moveLoading = ref(false);
-    const folderTree = ref([]);
-    const selectedMoveTargetId = ref(null);
+    const folderSelectorVisible = ref(false);
     const currentMoveRow = ref(null);
+    const selectedMoveTargetId = ref(null);
 
+    const folderTree = ref([]);
     const shortcutDialogVisible = ref(false);
     const shortcutLoading = ref(false);
     const selectedShortcutTargetId = ref(null);
@@ -149,11 +152,11 @@ export default {
       ]
     };
 
-    const showCreateDialog = async (fileType) => {
+    const showCreateDialog = async (fileType, parentFolderId = null) => {
       formData.value.fileName = '';
       formData.value.fileType = fileType;
       
-      const folderId = currentFolderIdRef.value;
+      const folderId = parentFolderId !== null ? parentFolderId : currentFolderIdRef.value;
       
       if (folderId === null || folderId === undefined || folderId === 0) {
         ElMessage.warning('请先进入云盘目录后再创建文件');
@@ -184,20 +187,12 @@ export default {
     const showMoveDialog = async (row) => {
       currentMoveRow.value = row;
       selectedMoveTargetId.value = null;
+      folderSelectorVisible.value = true;
+    };
 
-      try {
-        const rootId = props.currentFolderId || 0;
-        const response = await fileSystemService.listFiles(rootId);
-        if (response.code === 200) {
-          folderTree.value = buildFolderTree(response.data || []);
-        } else {
-          ElMessage.error('加载文件夹列表失败');
-        }
-      } catch (error) {
-        ElMessage.error('加载文件夹列表失败: ' + (error.response?.data?.message || error.message));
-      }
-
-      moveDialogVisible.value = true;
+    const handleFolderSelect = (folderInfo) => {
+      selectedMoveTargetId.value = folderInfo.folderId;
+      handleMoveSubmit();
     };
 
     const showShortcutDialog = async (row) => {
@@ -208,7 +203,13 @@ export default {
         const rootId = props.currentFolderId || 0;
         const response = await fileSystemService.listFiles(rootId);
         if (response.code === 200) {
-          folderTree.value = buildFolderTree(response.data || []);
+          const allDocs = response.data || [];
+          const folders = allDocs.filter(doc => doc.type === FS_NODE_TYPE.FOLDER);
+          if (folders.length > 0) {
+            folderTree.value = buildFolderTree(folders);
+          } else {
+            folderTree.value = [];
+          }
         } else {
           ElMessage.error('加载文件夹列表失败');
         }
@@ -237,12 +238,6 @@ export default {
       });
 
       return roots;
-    };
-
-    const handleTreeNodeClick = (data) => {
-      if (data.type === FS_NODE_TYPE.FOLDER) {
-        selectedMoveTargetId.value = data.id;
-      }
     };
 
     const handleShortcutTreeNodeClick = (data) => {
@@ -316,8 +311,6 @@ export default {
       }
 
       try {
-        moveLoading.value = true;
-
         const response = await fileSystemService.move(
           currentMoveRow.value.id,
           selectedMoveTargetId.value
@@ -325,7 +318,6 @@ export default {
 
         if (response.code === 200) {
           ElMessage.success('移动成功');
-          moveDialogVisible.value = false;
           emit('refresh');
         } else {
           ElMessage.error(response.message || '移动失败');
@@ -334,8 +326,6 @@ export default {
         if (error !== 'cancel') {
           ElMessage.error('移动失败: ' + (error.response?.data?.message || error.message));
         }
-      } finally {
-        moveLoading.value = false;
       }
     };
 
@@ -400,7 +390,6 @@ export default {
       formRef,
       renameFormRef,
       shortcutFormRef,
-      treeRef,
       shortcutTreeRef,
       dialogVisible,
       dialogTitle,
@@ -412,9 +401,10 @@ export default {
       renameLoading,
       renameFormData,
       renameRules,
-      moveDialogVisible,
-      moveLoading,
-      folderTree,
+      folderSelectorVisible,
+      currentMoveRow,
+      userSpaceNodeId,
+      cloudDriveNodeIdRef,
       shortcutDialogVisible,
       shortcutLoading,
       shortcutRules,
@@ -425,9 +415,9 @@ export default {
       handleSubmit,
       handleRenameSubmit,
       handleMoveSubmit,
+      handleFolderSelect,
       handleShortcutSubmit,
       handleDelete,
-      handleTreeNodeClick,
       handleShortcutTreeNodeClick
     };
   }
