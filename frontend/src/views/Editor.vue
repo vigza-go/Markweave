@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, shallowRef, nextTick, watch } from 'vue'
 import { Queue, TextOperation } from '@/js/common.js'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus';
 import * as monaco from 'monaco-editor'
 import { debounce } from 'lodash-es'
 // --- 深度渲染依赖 ---
@@ -52,7 +53,8 @@ let currentVersion = 0
 
 let ws = null
 let pullInterval = null
-
+let resendInterval = null
+let msgId = 0;
 // --- 修改后的 Markdown-it 配置 ---
 const md = new MarkdownIt({
   html: true,
@@ -198,13 +200,22 @@ const handleEditorScroll = () => {
 
   scrollTimer = setTimeout(() => { activeSide = null; }, 100);
 };
+const getMsgBody = () => {
+  return { docId: docId.value, method: null, clientId, msgId: msgId++, version: currentVersion, data: null }
+}
 
 // --- 4. 协作逻辑保持 (sendOp, initEditor, applyRemoteOp) ---
+const RESEND_TIMEOUT = 3000; // 3 秒没收到 ACK 就重发
+const MAX_RESEND_ATTEMPTS = 3; // 最大重试次数
+let lst_send_time = Date.now();
 const sendOp = (op) => {
-  const msg = { clientId, version: currentVersion, docId: docId.value, op };
+  const msg = getMsgBody();
+  msg.method = "sendOp";
+  msg.data = { op: op };
   waitQueue.push(msg);
   if (!waitStatus) {
     waitStatus = true;
+    lst_send_time = Date.now();
     ws.send(JSON.stringify(msg));
   }
 }
@@ -270,16 +281,16 @@ const applyRemoteOp = async (msg) => {
   }
 
   const model = editorInstance.value.getModel();
-  let remoteOp = new TextOperation.fromJSON(msg.op);
+  let remoteOp = new TextOperation.fromJSON(msg.data.op);
   // 你的原版 Transform 逻辑
   for (const localMsg of waitQueue) {
-    const localOp = new TextOperation.fromJSON(localMsg.op);
+    const localOp = new TextOperation.fromJSON(localMsg.data.op);
     if (localMsg.clientId < msg.clientId) {
       const pair = TextOperation.transform(localOp, remoteOp);
-      localMsg.op = pair[0].toJSON(); remoteOp = pair[1];
+      localMsg.data.op = pair[0].toJSON(); remoteOp = pair[1];
     } else {
       const pair = TextOperation.transform(remoteOp, localOp);
-      remoteOp = pair[0]; localMsg.op = pair[1].toJSON();
+      remoteOp = pair[0]; localMsg.data.op = pair[1].toJSON();
     }
   }
 
@@ -346,16 +357,27 @@ const connectWebSocket = () => {
   wsUrl.searchParams.set('clientId', clientId);
   ws = new WebSocket(wsUrl.toString());
 
-  ws.onopen = () => ws.send(JSON.stringify({ docId: docId.value, method: 'get_new' }));
+  ws.onopen = () => {
+    let msg = getMsgBody();
+    msg.method = 'getNew';
+    ws.send(JSON.stringify(msg));
+  }
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if (msg.method === 'get_new') {
+    if (msg.method === 'error') {
+      ElMessage.error(msg.data.msg);
+      return;
+    }
+    if (msg.method === 'fullText') {
       isApplyingRemote = true;
       currentVersion = msg.version;
       version.value = currentVersion;
-      editorInstance.value.setValue(msg.text);
-      previewHtml.value = md.render(msg.text);
+      editorInstance.value.setValue(msg.data.text);
+      while (waitQueue.size > 0) {
+        waitQueue.pop();
+      }
+      previewHtml.value = md.render(msg.data.text);
       renderMermaid();
       isApplyingRemote = false;
       return;
@@ -377,15 +399,37 @@ const connectWebSocket = () => {
 const startPullHistory = () => {
   pullInterval = setInterval(() => {
     if (Object.keys(bufferMap.value).length > 0) {
-      ws.send(JSON.stringify({ method: 'pull_history', version: currentVersion }));
+      let msg = getMsgBody();
+      msg.method = "pullHistory";
+      ws.send(JSON.stringify(msg));
     }
   }, 5000);
+};
+
+// 超时补发
+const startAckWatchdog = () => {
+  resendInterval = setInterval(() => {
+    if (waitQueue.size > 0 && waitStatus) {
+      const now = Date.now();
+      const frontMsg = waitQueue.getFront();
+      const lastTime = lst_send_time || 0;
+
+      if (now - lastTime > RESEND_TIMEOUT) {
+        console.warn(`检测到消息 ${frontMsg.msgId} 的 ACK 超时，补发中...`);
+        frontMsg.version = currentVersion;
+        lst_send_time = Date.now();
+        // 发送给后端（此时 msg 还是干净的，后端能正常反序列化）
+        ws.send(JSON.stringify(frontMsg));
+      }
+    }
+  }, 1000);
 };
 
 onMounted(() => {
   initEditor();
   connectWebSocket();
   startPullHistory();
+  startAckWatchdog();
   // 类似于一个后台 Daemon 线程，持续监听 DOM 变化
   const observer = new MutationObserver(debounce(() => {
     // 只要 previewPane 内部结构变了（比如协作同步了新内容），就检查有没有新的图表要画
@@ -403,6 +447,7 @@ onUnmounted(() => {
   if (editorInstance.value) editorInstance.value.dispose();
   if (ws) ws.close();
   if (pullInterval) clearInterval(pullInterval);
+  if (resendInterval) clearInterval(resendInterval);
 });
 
 const goBack = () => router.push('/dashboard');

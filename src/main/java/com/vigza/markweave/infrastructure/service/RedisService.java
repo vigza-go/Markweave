@@ -1,5 +1,6 @@
 package com.vigza.markweave.infrastructure.service;
 
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -21,6 +22,13 @@ public class RedisService {
     private static final String DOC_TEXT_PREFIX = "doc:text:";
     private static final String DOC_HISTORY_PREFIX = "doc:history:";
     private static final String DOC_CONNECTIONS_PREFIX = "doc:connections:";
+    private static final String DOC_OPMSG_PREFIX = "doc:opmsg:";
+    
+    public boolean tryProcessMessage(Long docId,String clientId,Long MsgId){
+        String key = DOC_OPMSG_PREFIX + docId + "_" + clientId + "_" + MsgId;
+        Boolean isFirstTime = redisTemplate.opsForValue().setIfAbsent(key, "1",Duration.ofMinutes(10));
+        return Boolean.TRUE.equals(isFirstTime);
+    }
 
     public Long getAndIncrementVersion(Long docId) {
         return redisTemplate.opsForValue().increment(DOC_VERSION_PREFIX + docId);

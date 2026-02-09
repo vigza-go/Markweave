@@ -4,10 +4,12 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.vigza.markweave.api.dto.Websocket.WsMessage;
 import com.vigza.markweave.core.service.AlgorithmService;
 import com.vigza.markweave.core.service.CollaborationService;
 import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
 
+import cn.hutool.core.lang.TypeReference;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 
@@ -19,8 +21,10 @@ public class RetryMessageListener {
 
     @RabbitListener(queues = RabbitMqConfig.RETRY_QUEUE)
     public void onMessage(String messagePayload){
-        JSONObject msg = new JSONUtil().parseObj(messagePayload);
-        Long docId = msg.getLong("docId");
+        WsMessage<JSONObject> msg = JSONUtil.toBean(messagePayload,
+                new TypeReference<WsMessage<JSONObject>>() {
+                }, true);
+        Long docId = msg.getDocId();
         algorithmSerivce.processOperation(docId, msg);
     }
 }

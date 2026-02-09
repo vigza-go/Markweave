@@ -6,6 +6,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.redisson.api.RLock;
+
+import com.vigza.markweave.api.dto.Websocket.WsMessage;
 import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.TextOperation;
 import com.vigza.markweave.infrastructure.config.RabbitMqConfig;
@@ -38,7 +40,7 @@ public class AlgorithmServiceImpl implements AlgorithmService {
     private RedisService redisService;
 
     @Override
-    public void processOperation(Long docId, JSONObject clientMsg) {
+    public void processOperation(Long docId, WsMessage<JSONObject> clientMsg) {
 
         String lockKey = "lock:doc:" + docId;
         RLock lock = redissonClient.getLock(lockKey);
@@ -48,12 +50,12 @@ public class AlgorithmServiceImpl implements AlgorithmService {
             isLocked = lock.tryLock(3, TimeUnit.SECONDS);
             if (isLocked) {
                 log.info("isLocked");
-                Long clientVer = clientMsg.getLong("version");
+                Long clientVer = clientMsg.getVersion();
                 TextOperation clientOp = null;
                 Long currentVersion = redisService.getVersion(docId);
                 if (clientVer < currentVersion) {
                     // 我们变换的时候，需要取出client的op，然后和历史op，进行transform，然后获得op'
-                    clientOp = new TextOperation().fromJSON(clientMsg.getJSONArray("op").toString());
+                    clientOp = new TextOperation().fromJSON(clientMsg.getData().getJSONArray("op").toString());
 
                     // 我们广播的version的就是它的操作clientaVer，所以clientVer执行过，这里应该从 + 1 开始
                     Long size = redisService.getHistoryListSize(docId);
@@ -64,7 +66,7 @@ public class AlgorithmServiceImpl implements AlgorithmService {
                     for (String history : historyList) {
                         JSONObject hisObj = JSONUtil.parseObj(history);
 
-                        if (hisObj.getStr("clientId").compareTo(clientMsg.getStr("clientId")) < 0) {
+                        if (hisObj.getStr("clientId").compareTo(clientMsg.getClientId()) < 0) {
                             TextOperation historyOp = new TextOperation()
                                     .fromJSON(hisObj.getJSONArray("op").toString());
                             TextOperation[] transformed = TextOperation.transform(historyOp, clientOp);
@@ -77,13 +79,13 @@ public class AlgorithmServiceImpl implements AlgorithmService {
                         }
 
                     }
-                    clientMsg.set("op", clientOp.toJSON());
+                    clientMsg.setData(new JSONObject().set("op", clientOp.toJSON()));
                 }
 
                 currentVersion = redisService.getAndIncrementVersion(docId);
-                clientMsg.set("version", currentVersion);
+                clientMsg.setVersion(currentVersion);
                 redisService.pushHistory(docId, clientMsg.toString());
-                clientOp = new TextOperation().fromJSON(clientMsg.getStr("op"));
+                clientOp = new TextOperation().fromJSON(clientMsg.getData().getJSONArray("op").toString());
                 // 我们拿着这个op然后apply到fullText上
                 String fullText = fsService.getDocContent(docId);
                 fullText = clientOp.apply(fullText.toString());
@@ -93,12 +95,12 @@ public class AlgorithmServiceImpl implements AlgorithmService {
                 log.info("send msg to collaboration exchange: {}", response);
             } else {
                 log.warn("文档 {} 竞争激烈，转发至重试队列", docId);
-                Integer count = clientMsg.getInt("retryCount");
+                Integer count = clientMsg.getRetryCount();
                 if (count == null) {
                     count = 0;
                 }
                 Integer retryCount = count + 1;
-                clientMsg.set("retryCount", retryCount);
+                clientMsg.setRetryCount(retryCount);
                 rabbitTemplate.convertAndSend(RabbitMqConfig.RETRY_EXCHANGE, RabbitMqConfig.RETRY_ROUTING_KEY,
                         clientMsg, msg -> {
                             Long backoff = computeBackoff(retryCount);
