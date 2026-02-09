@@ -141,9 +141,17 @@ public class FileSystemServiceImpl implements FileSystemService {
         }
 
         FsNode node = (FsNode) preResult.getData();
-        node.setName(newName);
+        String fromPath = node.getPath();
 
+        String toPath = fromPath.substring(0,fromPath.length() - node.getName().length()) + "/" + newName;
+        node.setPath(toPath);
+        node.setName(newName);
         fsNodeMapper.updateById(node);
+        fromPath += "/";
+        toPath += "/";
+        if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
+            fsNodeMapper.updateChildPaths(fromPath, toPath);
+        }
         return Result.success();
     }
 
@@ -242,6 +250,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         target.setDocId(source.getDocId());
         target.setName(source.getName());
         target.setSize(source.getSize());
+        target.setPath(source.getPath());
         target.setUpdateTime(source.getUpdateTime());
         target.setCreateTime(source.getCreateTime());
         target.setOwnerName(source.getDocOwner());

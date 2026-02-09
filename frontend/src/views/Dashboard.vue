@@ -150,7 +150,8 @@
               <template #default="{ row }">
                 <div class="doc-name-cell">
                   <component :is="getFileIcon(row.type)" class="doc-icon" />
-                  <a class="doc-name doc-link" href="#" @click.stop.prevent="openDocument(row, false)">{{ row.name || row.docName || '-' }}</a>
+                  <span v-if="isFolder(row)" class="doc-name">{{ row.name || row.docName || '-' }}</span>
+                  <a v-else class="doc-name doc-link" href="#" @click.stop.prevent="openDocument(row, false)">{{ row.name || row.docName || '-' }}</a>
                   <button v-if="isFile(row)" class="open-tab-btn" @click.stop="openDocument(row, true)">新标签</button>
                 </div>
               </template>
@@ -284,6 +285,8 @@ export default {
     const documents = ref([]);
     const loading = ref(false);
     const currentFolderId = ref(null);
+    const currentFolderName = ref('');
+    const folderPathStack = ref([]);
     const fileManager = ref(null);
     const breadcrumb = ref([]);
     const isInCloudDrive = ref(false);
@@ -329,21 +332,25 @@ export default {
       if (navId === 'home') {
         isInCloudDrive.value = false;
         currentFolderId.value = 0;
+        folderPathStack.value = [];
         loadRecentDocs();
       } else if (navId === 'cloud') {
         isInCloudDrive.value = true;
         let spaceNodeId = getUserSpaceNodeId();
+        
         if (!spaceNodeId) {
           spaceNodeId = await findMyCloudFolder();
         }
 
         if (!spaceNodeId) {
-          ElMessage.error('未找到云盘文件夹');
+          ElMessage.error('未找到云盘文件夹，请确保已初始化用户数据');
           return;
         }
 
         cloudDriveNodeId.value = spaceNodeId;
         currentFolderId.value = spaceNodeId;
+        currentFolderName.value = '我的云盘';
+        folderPathStack.value = [];
         loadFiles();
       } else if (navId === 'share') {
         isInCloudDrive.value = true;
@@ -359,6 +366,8 @@ export default {
 
         shareDriveNodeId.value = spaceNodeId;
         currentFolderId.value = spaceNodeId;
+        currentFolderName.value = '我的共享';
+        folderPathStack.value = [];
         loadFiles();
       } else if (navId === 'trash') {
         isInCloudDrive.value = false;
@@ -586,12 +595,17 @@ export default {
         const viewNodeId = row.ptId || row.id;
         await fileSystemService.updateViewTime(viewNodeId);
 
-        if (isFolder(row)) { // 文件夹
+        if (isFolder(row)) {
+          folderPathStack.value.push({
+            id: currentFolderId.value,
+            name: currentFolderName.value
+          });
           currentFolderId.value = row.id;
+          currentFolderName.value = row.name || row.docName || '';
           loadFiles();
-        } else if (isFile(row)) { // 文件
+        } else if (isFile(row)) {
           openDocument(row, Boolean(event?.ctrlKey || event?.metaKey));
-        } else if (isShortcut(row)) { // 快捷方式
+        } else if (isShortcut(row)) {
 
         }
       } catch (error) {
@@ -693,26 +707,26 @@ export default {
 
     const loadBreadcrumb = () => {
       if (activeNav.value === 'cloud' && cloudDriveNodeId.value) {
+        breadcrumb.value = [
+          { id: cloudDriveNodeId.value, name: '我的云盘' },
+          ...folderPathStack.value
+        ];
         if (String(currentFolderId.value) !== String(cloudDriveNodeId.value)) {
-          breadcrumb.value = [
-            { id: cloudDriveNodeId.value, name: '我的云盘' },
-            { id: currentFolderId.value, name: documents.value.find(d => String(d.id) === String(currentFolderId.value))?.name || '当前文件夹' }
-          ];
-        } else {
-          breadcrumb.value = [
-            { id: cloudDriveNodeId.value, name: '我的云盘' }
-          ];
+          breadcrumb.value.push({
+            id: currentFolderId.value,
+            name: currentFolderName.value
+          });
         }
       } else if (activeNav.value === 'share' && shareDriveNodeId.value) {
+        breadcrumb.value = [
+          { id: shareDriveNodeId.value, name: '我的共享' },
+          ...folderPathStack.value
+        ];
         if (String(currentFolderId.value) !== String(shareDriveNodeId.value)) {
-          breadcrumb.value = [
-            { id: shareDriveNodeId.value, name: '我的共享' },
-            { id: currentFolderId.value, name: documents.value.find(d => String(d.id) === String(currentFolderId.value))?.name || '当前文件夹' }
-          ];
-        } else {
-          breadcrumb.value = [
-            { id: shareDriveNodeId.value, name: '我的共享' }
-          ];
+          breadcrumb.value.push({
+            id: currentFolderId.value,
+            name: currentFolderName.value
+          });
         }
       } else {
         breadcrumb.value = [];
@@ -720,6 +734,20 @@ export default {
     };
 
     const handleBreadcrumbClick = (folderId) => {
+      if (folderId === cloudDriveNodeId.value || folderId === shareDriveNodeId.value) {
+        handleBackToCloud();
+        return;
+      }
+      const stackIndex = folderPathStack.value.findIndex(item => item.id === folderId);
+      if (stackIndex !== -1) {
+        folderPathStack.value = folderPathStack.value.slice(0, stackIndex + 1);
+        const targetFolder = folderPathStack.value[folderPathStack.value.length - 1];
+        currentFolderId.value = targetFolder.id;
+        currentFolderName.value = targetFolder.name;
+        loadFiles();
+        loadBreadcrumb();
+        return;
+      }
       currentFolderId.value = folderId;
       loadFiles();
       loadBreadcrumb();
@@ -728,6 +756,8 @@ export default {
     const handleBackToCloud = () => {
       activeNav.value = 'cloud';
       currentFolderId.value = cloudDriveNodeId.value;
+      currentFolderName.value = '我的云盘';
+      folderPathStack.value = [];
       loadFiles();
       loadBreadcrumb();
     };
@@ -735,6 +765,8 @@ export default {
     const handleBackToShare = () => {
       activeNav.value = 'share';
       currentFolderId.value = shareDriveNodeId.value;
+      currentFolderName.value = '我的共享';
+      folderPathStack.value = [];
       loadFiles();
       loadBreadcrumb();
     };
@@ -807,6 +839,9 @@ export default {
       userAvatar,
       breadcrumb,
       trashMode,
+      currentFolderId,
+      currentFolderName,
+      folderPathStack,
       getFileIcon,
       formatFileSize,
       formatSize,
@@ -830,12 +865,14 @@ export default {
       handleActionCommand,
       findMyCloudFolder,
       findMyShareFolder,
+      isFolder,
       isFile,
       handleMore,
       tableRowClassName,
       loading,
       fileManager,
-      handleLogout
+      handleLogout,
+      refreshCurrent
     };
   }
 };

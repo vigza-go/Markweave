@@ -13,7 +13,7 @@ const props = defineProps({
     type: String,
     default: 'ws://localhost:8080/ws/collaboration'
   }
-})
+})  
 
 const version = ref(0)
 const editorContainer = ref(null)
