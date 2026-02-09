@@ -31,7 +31,7 @@ public interface FileSystemService {
     // 应当在用户打开文档时，关闭文章后调用
     Result<?> updateViewTime(Long nodeId,String token);
 
-    Result<List<RecentDocVO>> selectRecentDocList(String token);
+    Result<List<FsNodeVo>> selectRecentDocList(String token);
 
     void initUserNodes(String token);
 

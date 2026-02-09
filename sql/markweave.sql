@@ -17,7 +17,8 @@ create table user (
 drop table if exists doc;
 create table doc(
   id bigint primary key,
-  content longtext
+  content longtext,
+  recycled tinyint(1) default 0 comment '是否已经回收'
 );
 
 drop table if exists collaboration;

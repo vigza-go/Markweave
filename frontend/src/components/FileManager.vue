@@ -32,36 +32,20 @@
       @select="handleFolderSelect"
     />
 
-    <el-dialog v-model="shortcutDialogVisible" title="创建快捷方式" width="400px" :close-on-click-modal="false">
-      <el-form :model="shortcutFormData" :rules="shortcutRules" ref="shortcutFormRef" label-width="0">
-        <el-form-item prop="faId">
-          <el-tree ref="shortcutTreeRef" :data="folderTree" :props="{ label: 'name', children: 'children' }" default-expand-all
-            highlight-current check-strictly :expand-on-click-node="false" @node-click="handleShortcutTreeNodeClick">
-            <template #default="{ node, data }">
-              <div class="tree-node">
-                <svg v-if="data.type === 2" class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b"
-                  stroke-width="2">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
-                <span>{{ node.label }}</span>
-              </div>
-            </template>
-          </el-tree>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="shortcutDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleShortcutSubmit" :loading="shortcutLoading">确定</el-button>
-      </template>
-    </el-dialog>
+    <FolderSelector
+      v-model="shortcutFolderSelectorVisible"
+      :root-node-id="userSpaceNodeId"
+      :exclude-node-id="currentShortcutRow?.id"
+      @select="handleShortcutFolderSelect"
+    />
   </div>
 </template>
 
 <script>
-import { ref, computed, nextTick, watch, toRef } from 'vue';
+import { ref, computed, nextTick, toRef } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { fileSystemService } from '@/services';
-import { FS_NODE_TYPE, isFolder, isFile } from '@/constants/fsNode';
+import { FS_NODE_TYPE } from '@/constants/fsNode';
 import FolderSelector from './FolderSelector.vue';
 
 export default {
@@ -91,8 +75,6 @@ export default {
   setup(props, { emit }) {
     const formRef = ref(null);
     const renameFormRef = ref(null);
-    const shortcutFormRef = ref(null);
-    const shortcutTreeRef = ref(null);
 
     const dialogVisible = ref(false);
     const dialogTitle = ref('创建文件');
@@ -140,9 +122,11 @@ export default {
     const currentMoveRow = ref(null);
     const selectedMoveTargetId = ref(null);
 
-    const folderTree = ref([]);
-    const shortcutDialogVisible = ref(false);
+    const shortcutFolderSelectorVisible = ref(false);
     const shortcutLoading = ref(false);
+    const shortcutFormData = ref({
+      faId: null
+    });
     const selectedShortcutTargetId = ref(null);
     const currentShortcutRow = ref(null);
 
@@ -197,53 +181,14 @@ export default {
 
     const showShortcutDialog = async (row) => {
       currentShortcutRow.value = row;
-      selectedShortcutTargetId.value = props.currentFolderId || 0;
-
-      try {
-        const rootId = props.currentFolderId || 0;
-        const response = await fileSystemService.listFiles(rootId);
-        if (response.code === 200) {
-          const allDocs = response.data || [];
-          const folders = allDocs.filter(doc => doc.type === FS_NODE_TYPE.FOLDER);
-          if (folders.length > 0) {
-            folderTree.value = buildFolderTree(folders);
-          } else {
-            folderTree.value = [];
-          }
-        } else {
-          ElMessage.error('加载文件夹列表失败');
-        }
-      } catch (error) {
-        ElMessage.error('加载文件夹列表失败: ' + (error.response?.data?.message || error.message));
-      }
-
-      shortcutDialogVisible.value = true;
+      selectedShortcutTargetId.value = null;
+      shortcutFormData.value.faId = null;
+      shortcutFolderSelectorVisible.value = true;
     };
 
-    const buildFolderTree = (nodes) => {
-      const map = {};
-      const roots = [];
-
-      nodes.filter(node => isFolder(node)).forEach(node => {
-        map[node.id] = { ...node, children: [] };
-      });
-
-      nodes.filter(node => isFolder(node)).forEach(node => {
-        const current = map[node.id];
-        if (node.faId && map[node.faId]) {
-          map[node.faId].children.push(current);
-        } else {
-          roots.push(current);
-        }
-      });
-
-      return roots;
-    };
-
-    const handleShortcutTreeNodeClick = (data) => {
-      if (data.type === FS_NODE_TYPE.FOLDER) {
-        selectedShortcutTargetId.value = data.id;
-      }
+    const handleShortcutFolderSelect = (folderInfo) => {
+      selectedShortcutTargetId.value = folderInfo.folderId;
+      handleShortcutSubmit();
     };
 
     const handleSubmit = async () => {
@@ -345,7 +290,6 @@ export default {
 
         if (response.code === 200) {
           ElMessage.success('快捷方式创建成功');
-          shortcutDialogVisible.value = false;
           emit('refresh');
         } else {
           ElMessage.error(response.message || '创建快捷方式失败');
@@ -389,8 +333,6 @@ export default {
     return {
       formRef,
       renameFormRef,
-      shortcutFormRef,
-      shortcutTreeRef,
       dialogVisible,
       dialogTitle,
       loading,
@@ -405,9 +347,12 @@ export default {
       currentMoveRow,
       userSpaceNodeId,
       cloudDriveNodeIdRef,
-      shortcutDialogVisible,
+      shortcutFolderSelectorVisible,
       shortcutLoading,
+      shortcutFormData,
       shortcutRules,
+      currentShortcutRow,
+      selectedShortcutTargetId,
       showCreateDialog,
       showRenameDialog,
       showMoveDialog,
@@ -416,35 +361,10 @@ export default {
       handleRenameSubmit,
       handleMoveSubmit,
       handleFolderSelect,
+      handleShortcutFolderSelect,
       handleShortcutSubmit,
-      handleDelete,
-      handleShortcutTreeNodeClick
+      handleDelete
     };
   }
 };
 </script>
-
-<style scoped>
-.tree-node {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-}
-
-.folder-icon {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
-:deep(.el-tree-node__content) {
-  height: auto;
-  padding: 4px 0;
-}
-
-:deep(.el-tree-node.is-current > .el-tree-node__content) {
-  background-color: #374151;
-  border-radius: 4px;
-}
-</style>

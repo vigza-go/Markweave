@@ -12,5 +12,5 @@ public class Doc {
 
   private Long id;
   private String content;
-
+  private Boolean recycled;
 }

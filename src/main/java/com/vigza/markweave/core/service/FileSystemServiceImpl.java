@@ -71,10 +71,11 @@ public class FileSystemServiceImpl implements FileSystemService {
     @Override
     public void initUserNodes(String token) {
         User user = jwtUtil.getUserFromToken(token);
-        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(), 0L, Constants.FsNodeType.FOLDER, token,false)
+        FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(), 0L, Constants.FsNodeType.FOLDER, token,
+                false)
                 .getData();
         Long faId = faNode.getId();
-        createNode("我的共享", user.getUserShareSpaceNodeId(), faId, Constants.FsNodeType.FOLDER, token,false);
+        createNode("我的共享", user.getUserShareSpaceNodeId(), faId, Constants.FsNodeType.FOLDER, token, false);
     }
 
     @Override
@@ -118,7 +119,7 @@ public class FileSystemServiceImpl implements FileSystemService {
                 .build();
         if (fileType.equals(Constants.FsNodeType.FILE)) {
             Long docId = IdGenerator.nextId();
-            Doc doc = new Doc(docId, "");
+            Doc doc = new Doc(docId, "",false);
             docMapper.insert(doc);
 
             node.setDocId(docId);
@@ -143,7 +144,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         FsNode node = (FsNode) preResult.getData();
         String fromPath = node.getPath();
 
-        String toPath = fromPath.substring(0,fromPath.length() - node.getName().length()) + "/" + newName;
+        String toPath = fromPath.substring(0, fromPath.length() - node.getName().length()) + "/" + newName;
         node.setPath(toPath);
         node.setName(newName);
         fsNodeMapper.updateById(node);
@@ -196,13 +197,18 @@ public class FileSystemServiceImpl implements FileSystemService {
             return pResult;
         FsNode node = (FsNode) pResult.getData();
         node.setRecycled(true);
+        if(node.getType().equals(Constants.FsNodeType.FILE)){
+            Doc doc = docMapper.selectById(node.getDocId());
+            if(doc == null){
+                return Result.error(404, "文档不存在");
+            }
+            doc.setRecycled(true);
+            docMapper.updateById(doc);
+        }
         fsNodeMapper.updateById(node);
-
         if (node.getType().equals(Constants.FsNodeType.FOLDER)) {
             fsNodeMapper.recycleChildPaths(node.getPath() + "/");
-
         }
-
         return Result.success();
     }
 
@@ -211,8 +217,6 @@ public class FileSystemServiceImpl implements FileSystemService {
         Result<?> preResult = getAccess(faId, token, true);
         if (!preResult.getCode().equals(200))
             return (Result<List<FsNodeVo>>) preResult;
-        FsNode faNode = (FsNode) preResult.getData();
-
         List<FsNode> nodes = fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
                 .eq(FsNode::getFaId, faId)
                 .eq(FsNode::getRecycled, false)
@@ -223,20 +227,9 @@ public class FileSystemServiceImpl implements FileSystemService {
                 .map(node -> node.getPtId())
                 .collect(Collectors.toSet());
 
-        List<FsNode> ptrList = ptIds.isEmpty() ? new ArrayList<FsNode>()
-                : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
-                        .in(FsNode::getId, ptIds));
-
-        Map<Long, FsNode> targetMap = ptrList.stream().collect(Collectors.toMap(FsNode::getId, n -> n));
-
         List<FsNodeVo> result = nodes.stream().map(node -> {
             FsNodeVo vo = new FsNodeVo();
             copyBaseProperties(node, vo);
-            if (node.getType().equals(Constants.FsNodeType.SHORTCUT) && node.getPtId() != null) {
-                copyBaseProperties(targetMap.get(node.getPtId()), vo);
-                vo.setPtId(node.getPtId());
-
-            }
             return vo;
 
         }).collect(Collectors.toList());
@@ -246,14 +239,15 @@ public class FileSystemServiceImpl implements FileSystemService {
 
     private void copyBaseProperties(FsNode source, FsNodeVo target) {
         target.setId(source.getId());
-        target.setType(source.getType());
         target.setDocId(source.getDocId());
         target.setName(source.getName());
-        target.setSize(source.getSize());
         target.setPath(source.getPath());
+        target.setType(source.getType());
+        target.setOwnerName(source.getDocOwner());
+        target.setSize(source.getSize());
         target.setUpdateTime(source.getUpdateTime());
         target.setCreateTime(source.getCreateTime());
-        target.setOwnerName(source.getDocOwner());
+        target.setPtId(source.getPtId());
     }
 
     // 不严格条件下，允许在根节点下创建个人云盘节点
@@ -300,7 +294,7 @@ public class FileSystemServiceImpl implements FileSystemService {
     }
 
     @Override
-    public Result<List<RecentDocVO>> selectRecentDocList(String token) {
+    public Result<List<FsNodeVo>> selectRecentDocList(String token) {
         User user = jwtUtil.getUserFromToken(token);
         Long userId = user.getId();
 
@@ -313,31 +307,26 @@ public class FileSystemServiceImpl implements FileSystemService {
         if (fsNodes == null)
             fsNodes = new ArrayList<FsNode>();
 
-        List<Long> ptIds = fsNodes.stream().filter(n -> n.getType().equals(Constants.FsNodeType.SHORTCUT))
-                .map(n -> n.getPtId()).collect(Collectors.toList());
-
-        Map<Long, FsNode> map = ptIds.isEmpty() ? new HashMap<Long, FsNode>()
-                : fsNodeMapper.selectList(new LambdaQueryWrapper<FsNode>()
-                        .in(FsNode::getId, ptIds)).stream().collect(Collectors.toMap(FsNode::getId, n -> n));
-
-        List<RecentDocVO> result = fsNodes.stream()
+        List<FsNodeVo> result = fsNodes.stream()
                 .map(fsNode -> {
-                    FsNode targetNode = fsNode;
-                    if (fsNode.getType().equals(Constants.FsNodeType.SHORTCUT)) {
-                        targetNode = map.get(fsNode.getPtId());
-                    }
-                    if (targetNode == null)
-                        return null;
-                    return RecentDocVO.builder()
-                            .docId(targetNode.getDocId())
-                            .docName(targetNode.getName())
-                            .ownerId(targetNode.getUserId())
-                            .size(targetNode.getSize())
-                            .lastViewTime(fsNode.getLastViewTime()) // 依然用当前用户的查看时间
-                            .ownerName(targetNode.getDocOwner())
+                    return FsNodeVo.builder()
+                            .id(fsNode.getId())
+                            .userId(fsNode.getUserId())
+                            .docOwner(fsNode.getDocOwner())
+                            .ownerName(fsNode.getDocOwner())
+                            .docId(fsNode.getDocId())
+                            .name(fsNode.getName())
+                            .faId(fsNode.getFaId())
+                            .path(fsNode.getPath())
+                            .type(fsNode.getType())
+                            .ptId(fsNode.getPtId())
+                            .recycled(fsNode.getRecycled())
+                            .size(fsNode.getSize())
+                            .updateTime(fsNode.getUpdateTime())
+                            .createTime(fsNode.getCreateTime())
+                            .lastViewTime(fsNode.getLastViewTime())
                             .build();
                 })
-                .filter(item -> item != null)
                 .collect(Collectors.toList());
 
         return Result.success(result);

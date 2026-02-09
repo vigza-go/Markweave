@@ -97,27 +97,77 @@
           @select="handleFolderSelect"
         />
 
-        <div v-if="breadcrumb.length > 0 && activeNav !== 'home'" class="breadcrumb">
-          <span v-if="activeNav === 'cloud'" class="breadcrumb-item" @click="handleBackToCloud">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-            </svg>
-          </span>
-          <span v-else-if="activeNav === 'share'" class="breadcrumb-item" @click="handleBackToShare">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-            </svg>
-          </span>
-          <template v-for="(item, index) in breadcrumb" :key="item.id">
-            <span v-if="index > 0 || (activeNav !== 'cloud' && activeNav !== 'share')"
-              class="breadcrumb-separator">/</span>
-            <span :class="['breadcrumb-item', { active: index === breadcrumb.length - 1 }]"
-              @click="handleBreadcrumbClick(item.id)">{{ item.name }}</span>
-          </template>
+        <div class="content-header" v-if="breadcrumb.length > 0 && activeNav !== 'home' && activeNav !== 'trash'">
+          <div class="breadcrumb">
+            <span v-if="activeNav === 'cloud'" class="breadcrumb-item" @click="handleBackToCloud">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
+              </svg>
+            </span>
+            <span v-else-if="activeNav === 'share'" class="breadcrumb-item" @click="handleBackToShare">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+              </svg>
+            </span>
+            <template v-for="(item, index) in breadcrumb" :key="item.id">
+              <span v-if="index > 0 || (activeNav !== 'cloud' && activeNav !== 'share')"
+                class="breadcrumb-separator">/</span>
+              <span :class="['breadcrumb-item', { active: index === breadcrumb.length - 1 }]"
+                @click="handleBreadcrumbClick(item.id)">{{ item.name }}</span>
+            </template>
+          </div>
+
+          <div class="header-actions-right">
+            <div v-if="showTabs" class="tabs">
+              <button v-for="tab in availableTabs" :key="tab.id" :class="['tab-btn', { active: activeTab === tab.id }]"
+                @click="activeTab = tab.id">
+                {{ tab.label }}
+              </button>
+            </div>
+
+            <div class="filter-section" v-if="activeNav !== 'share'">
+              <el-dropdown trigger="click" @command="handleCreateCommand">
+                <button class="filter-btn" :disabled="!currentFolderId || currentFolderId === 0">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  新建
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="new-file">Markdown 文档</el-dropdown-item>
+                    <el-dropdown-item command="new-folder">文件夹</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+
+              <el-dropdown trigger="click" @command="handleFilterCommand">
+                <button class="filter-btn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                  </svg>
+                  筛选
+                </button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="all">全部时间</el-dropdown-item>
+                    <el-dropdown-item command="week">近七天</el-dropdown-item>
+                    <el-dropdown-item command="month">近一个月</el-dropdown-item>
+                    <el-dropdown-item divided command="owner-me">仅看我的文件</el-dropdown-item>
+                    <el-dropdown-item command="owner-other">仅看他人共享</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </div>
         </div>
 
-        <div class="content-header">
+        <div class="content-header" v-else-if="activeNav === 'trash'">
+          <div></div>
+        </div>
+
+        <div class="content-header" v-else>
           <div v-if="showTabs" class="tabs">
             <button v-for="tab in availableTabs" :key="tab.id" :class="['tab-btn', { active: activeTab === tab.id }]"
               @click="activeTab = tab.id">
@@ -125,7 +175,7 @@
             </button>
           </div>
 
-          <div class="filter-section">
+          <div class="filter-section" v-if="activeNav !== 'share'">
             <el-dropdown trigger="click" @command="handleCreateCommand">
               <button class="filter-btn" :disabled="!currentFolderId || currentFolderId === 0">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -170,8 +220,7 @@
                 <div class="doc-name-cell">
                   <component :is="getFileIcon(row.type)" class="doc-icon" />
                   <span v-if="isFolder(row)" class="doc-name">{{ row.name || row.docName || '-' }}</span>
-                  <a v-else class="doc-name doc-link" href="#" @click.stop.prevent="openDocument(row, false)">{{
-                    row.name || row.docName || '-' }}</a>
+                  <span v-else class="doc-name doc-link">{{ row.name || row.docName || '-' }}</span>
                   <button v-if="isFile(row)" class="open-tab-btn" @click.stop="openDocument(row, true)">新标签</button>
                 </div>
               </template>
@@ -189,6 +238,12 @@
             <el-table-column prop="updateTime" label="最近访问" width="180">
               <template #default="{ row }">
                 {{ formatDate(row.lastViewed || row.updateTime) }}
+              </template>
+            </el-table-column>
+
+            <el-table-column prop="createTime" label="创建时间" width="180">
+              <template #default="{ row }">
+                {{ formatDate(row.createTime) }}
               </template>
             </el-table-column>
 
@@ -220,7 +275,7 @@
                       <el-dropdown-menu>
                         <el-dropdown-item command="rename">重命名</el-dropdown-item>
                         <el-dropdown-item command="move">移动</el-dropdown-item>
-                        <el-dropdown-item command="shortcut">创建快捷方式</el-dropdown-item>
+                        <el-dropdown-item v-if="row.type === 1" command="shortcut">创建快捷方式</el-dropdown-item>
                         <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
@@ -628,30 +683,48 @@ export default {
       }
     };
 
+    const handleOpenShortcut = (row, inNewTab = false) => {
+      if (!row.ptId) {
+        ElMessage.warning('快捷方式无效');
+        return;
+      }
+      const targetUrl = router.resolve(`/editor/${row.ptId}`).href;
+      if (inNewTab) {
+        window.open(targetUrl, '_blank');
+      } else {
+        router.push(targetUrl);
+      }
+    };
+
     const handleRowClick = async (row, _column, event) => {
+      console.log('handleRowClick called, row:', row, 'type:', row.type);
       try {
         if (trashMode.value) {
+          console.log('trashMode, return');
           return;
         }
 
-        const viewNodeId = row.ptId || row.id;
-        await fileSystemService.updateViewTime(viewNodeId);
-
         if (isFolder(row)) {
+          console.log('isFolder, navigate');
           let lst = folderPathStack.value.length - 1;
-          console.log(JSON.stringify(folderPathStack.value))
           currentFolderId.value = row.id;
           currentFolderName.value = row.name || row.docName || '';
           if ((lst >= 0 && (folderPathStack.value[lst].id !== currentFolderId.value))) {
             pushIntoFolderPathStack();
           }
-          console.log(JSON.stringify(folderPathStack.value))
-
           loadFiles();
         } else if (isFile(row)) {
+          console.log('isFile, updateViewTime');
+          const viewNodeId =  row.id;
+          await fileSystemService.updateViewTime(viewNodeId);
           openDocument(row, Boolean(event?.ctrlKey || event?.metaKey));
         } else if (isShortcut(row)) {
-
+          console.log('isShortcut, updateViewTime');
+          const viewNodeId = row.id;
+          await fileSystemService.updateViewTime(viewNodeId);
+          handleOpenShortcut(row, Boolean(event?.ctrlKey || event?.metaKey));
+        } else {
+          console.log('Unknown type:', row.type);
         }
       } catch (error) {
         ElMessage.error('操作失败: ' + (error.response?.data?.message || error.message));
@@ -813,14 +886,20 @@ export default {
         const response = await fileSystemService.getRecentDocs();
         if (response.code === 200) {
           documents.value = (response.data || []).map(doc => ({
-            id: doc.docId,
-            name: doc.docName,
+            id: doc.id,
+            docId: doc.docId,
+            name: doc.name,
             owner: doc.ownerName || '-',
             ownerName: doc.ownerName,
-            type: FS_NODE_TYPE.FILE,
+            type: doc.type,
             size: doc.size || 0,
             lastViewed: doc.lastViewTime,
-            updateTime: doc.lastViewTime
+            updateTime: doc.updateTime,
+            createTime: doc.createTime,
+            faId: doc.faId,
+            path: doc.path,
+            ptId: doc.ptId,
+            recycled: doc.recycled
           }));
         } else {
           ElMessage.error(response.message || '加载失败');
@@ -892,6 +971,7 @@ export default {
       handleCreate,
       handleCreateCommand,
       openDocument,
+      handleOpenShortcut,
       handleUpload,
       handleNotifications,
       handleUserCommand,
@@ -1191,6 +1271,12 @@ export default {
   margin-bottom: 20px;
 }
 
+.header-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .tabs {
   display: flex;
   gap: 8px;
@@ -1240,6 +1326,12 @@ export default {
 .filter-btn svg {
   width: 16px;
   height: 16px;
+}
+
+.filter-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .table-wrapper {

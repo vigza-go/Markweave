@@ -49,11 +49,7 @@ export const fileSystemService = {
   },
 
   async updateViewTime(nodeId) {
-    const response = await http.post('/api/fs/file/viewtime/update', {
-      nodeId
-    }, {
-      params: { nodeId }
-    });
+    const response = await http.post(`/api/fs/file/viewtime/update?nodeId=${nodeId}`);
     return response.data;
   },
 

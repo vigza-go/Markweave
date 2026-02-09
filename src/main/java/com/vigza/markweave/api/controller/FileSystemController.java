@@ -115,7 +115,7 @@ public class FileSystemController {
     }
 
     @GetMapping("/docs/recent")
-    Result<List<RecentDocVO>> selectRecentDocList(@RequestHeader("Authorization") String token) {
+    Result<List<FsNodeVo>> selectRecentDocList(@RequestHeader("Authorization") String token) {
         if (jwtUtil.validateToken(token)) {
             return fsService.selectRecentDocList(token);
         } else {

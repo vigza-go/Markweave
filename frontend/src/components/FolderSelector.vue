@@ -15,6 +15,19 @@
 
       <div class="folder-list">
         <div
+          class="folder-item current-folder-item"
+          @click="selectCurrentFolder"
+        >
+          <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          <span class="folder-name">
+            <span class="current-folder-label">当前目录</span>
+            {{ currentFolderName }}
+          </span>
+          <el-tag v-if="selectedFolder && selectedFolder.id === currentFolderId" type="success" size="small">已选择</el-tag>
+        </div>
+        <div
           v-for="folder in folders"
           :key="folder.id"
           class="folder-item"
@@ -24,7 +37,8 @@
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
           <span class="folder-name">{{ folder.name }}</span>
-          <el-button v-if="canSelectFolder(folder)" type="primary" size="small" @click.stop="selectFolder(folder)">
+          <el-tag v-if="selectedFolder && selectedFolder.id === folder.id" type="success" size="small">已选择</el-tag>
+          <el-button v-else-if="canSelectFolder(folder)" type="primary" size="small" @click.stop="selectFolder(folder)">
             选择
           </el-button>
         </div>
@@ -155,6 +169,13 @@ const selectFolder = (folder) => {
   selectedFolder.value = folder;
 };
 
+const selectCurrentFolder = () => {
+  selectedFolder.value = {
+    id: currentFolderId.value,
+    name: currentFolderName.value
+  };
+};
+
 const confirmSelect = () => {
   if (!selectedFolder.value) {
     ElMessage.warning('请选择一个目标文件夹');
@@ -234,6 +255,21 @@ watch(dialogVisible, (val) => {
 
 .folder-item:last-child {
   border-bottom: none;
+}
+
+.current-folder-item {
+  background-color: #ecf5ff;
+  border-bottom: 1px solid #409eff;
+}
+
+.current-folder-item:hover {
+  background-color: #d9ecff;
+}
+
+.current-folder-label {
+  color: #909399;
+  font-size: 12px;
+  margin-right: 8px;
 }
 
 .folder-icon {
