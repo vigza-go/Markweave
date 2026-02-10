@@ -268,6 +268,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         long newSize = content.getBytes(StandardCharsets.UTF_8).length;
         LambdaUpdateWrapper<FsNode> updateWrapper = new LambdaUpdateWrapper<>();
         updateWrapper.eq(FsNode::getDocId, docId)
+                .eq(FsNode::getType,Constants.FsNodeType.FILE)
                 .set(FsNode::getSize, newSize)
                 .set(FsNode::getUpdateTime, LocalDateTime.now());
         fsNodeMapper.update(updateWrapper);

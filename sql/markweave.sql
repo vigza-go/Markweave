@@ -41,7 +41,6 @@ create table fs_node(
   name varchar(128) comment '文件(夹)名',
   size bigint default 0 comment '文件大小',
   fa_id bigint not null comment '父节点名',
-  pt_id bigint  comment '指针节点（快捷方式）指向的真实节点id',
   path varchar(512) comment '/0/userId/.../fs_id/xxx/xxx',
   type int not null comment '1 - 文件 2 - 文件夹 3 - 指针节点（快捷方式）',
   recycled tinyint(1) default 0 comment '是否已经回收',
