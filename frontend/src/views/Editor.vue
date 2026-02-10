@@ -811,6 +811,21 @@ ${renderedHtml}
           </svg>
           分享
         </button>
+         <el-dropdown trigger="click" @command="(cmd) => { if(cmd==='md')exportToMarkdown();else if(cmd==='html')exportToHtml();else if(cmd==='pdf')exportToPdf(); }">
+          <button class="action-btn" :loading="exporting">
+            <svg v-if="!exporting" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+            </svg>
+            {{ exporting ? '导出中...' : '导出' }}
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="md">Markdown (.md)</el-dropdown-item>
+              <el-dropdown-item command="html">HTML (.html)</el-dropdown-item>
+              <el-dropdown-item command="pdf">PDF (.pdf)</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </div>
 

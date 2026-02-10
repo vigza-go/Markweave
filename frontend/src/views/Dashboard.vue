@@ -253,16 +253,9 @@
               </template>
             </el-table-column>
 
-            <el-table-column v-if="!trashMode" label="操作" width="150" align="center">
+            <el-table-column v-if="!trashMode" label="操作" width="120" align="center">
               <template #default="{ row }">
                 <div class="action-btns">
-                  <button class="action-btn" @click.stop="handleDownload(row)" title="下载">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                  </button>
                   <el-dropdown trigger="click" @command="(command) => handleActionCommand(command, row)">
                     <button class="action-btn" @click.stop>
                       <svg viewBox="0 0 24 24" fill="currentColor">
@@ -734,10 +727,6 @@ export default {
       }
     };
 
-    const handleDownload = (row) => {
-      ElMessage.success('下载: ' + row.name);
-    };
-
     const handleRestore = async (row) => {
       try {
         const response = await fileSystemService.restoreFile(row.id);
@@ -980,7 +969,6 @@ export default {
       handleUserCommand,
       handleFilterCommand,
       handleRowClick,
-      handleDownload,
       handleRestore,
       handlePermanentDelete,
       handleNavClick,
