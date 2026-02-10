@@ -4,6 +4,9 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vigza.markweave.api.dto.Websocket.WsMessage;
 import com.vigza.markweave.core.service.AlgorithmService;
 import com.vigza.markweave.core.service.CollaborationService;
@@ -19,12 +22,20 @@ public class RetryMessageListener {
     @Autowired
     private AlgorithmService algorithmSerivce;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @RabbitListener(queues = RabbitMqConfig.RETRY_QUEUE)
     public void onMessage(String messagePayload){
-        WsMessage<JSONObject> msg = JSONUtil.toBean(messagePayload,
-                new TypeReference<WsMessage<JSONObject>>() {
-                }, true);
-        Long docId = msg.getDocId();
-        algorithmSerivce.processOperation(docId, msg);
+        WsMessage<Object> msg;
+        try {
+            msg = objectMapper.readValue(messagePayload,WsMessage.class);
+            Long docId = msg.getDocId();
+            algorithmSerivce.processOperation(docId, msg);
+        } catch (JsonMappingException e) {
+            e.printStackTrace();
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
     }
 }

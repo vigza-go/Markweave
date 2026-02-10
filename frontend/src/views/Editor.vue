@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus';
 import * as monaco from 'monaco-editor'
 import { debounce } from 'lodash-es'
+import ShareDialog from '@/components/ShareDialog.vue'
 // --- 深度渲染依赖 ---
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
@@ -41,11 +42,21 @@ const route = useRoute()
 const router = useRouter()
 
 const docId = ref(route.params.docId)
+const docName = ref(decodeURIComponent(route.query.docName || '未命名文档'))
 const version = ref(0)
 const editorContainer = ref(null)
 const previewPane = ref(null)
 const editorInstance = shallowRef(null)
 const editorContent = ref('')
+
+watch(() => route.query.docName, (newName) => {
+  docName.value = decodeURIComponent(newName || '未命名文档')
+  document.title = `${docName.value} - MarkWeave`
+})
+
+onMounted(() => {
+  document.title = `${docName.value} - MarkWeave`
+})
 
 const token = localStorage.getItem('token')
 const clientId = 'user_' + (localStorage.getItem('userId') || Math.random().toString(16).slice(2))
@@ -365,6 +376,7 @@ const connectWebSocket = () => {
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
+    msg.version = Number(msg.version)
     if (msg.method === 'error') {
       ElMessage.error(msg.data.msg);
       return;
@@ -451,13 +463,24 @@ onUnmounted(() => {
 });
 
 const goBack = () => router.push('/dashboard');
+
+const showShareDialog = ref(false);
 </script>
 
 <template>
   <div class="editor-wrapper">
     <div class="editor-header">
       <button class="back-btn" @click="goBack">← 返回</button>
+      <div class="doc-title">{{ docName }}</div>
       <div class="status-info">版本: {{ version }} | 协作 ID: {{ clientId }}</div>
+      <div class="header-actions">
+        <button class="action-btn" @click="showShareDialog = true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
+          </svg>
+          分享
+        </button>
+      </div>
     </div>
 
     <EditorToolbar :doc-id="Number(docId)" @format="applyFormat" />
@@ -466,6 +489,12 @@ const goBack = () => router.push('/dashboard');
       <div ref="editorContainer" class="monaco-box"></div>
       <div ref="previewPane" class="preview-pane markdown-body" v-html="previewHtml"></div>
     </div>
+
+    <ShareDialog
+      v-model:visible="showShareDialog"
+      :doc-id="docId"
+      :doc-name="docName"
+    />
   </div>
 </template>
 
@@ -487,6 +516,16 @@ const goBack = () => router.push('/dashboard');
   font-size: 13px;
 }
 
+.doc-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #fff;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .back-btn {
   background: #333;
   border: none;
@@ -497,6 +536,30 @@ const goBack = () => router.push('/dashboard');
 }
 
 .back-btn:hover {
+  background: #444;
+  color: #fff;
+}
+
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.action-btn {
+  background: #333;
+  border: none;
+  color: #ccc;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.action-btn:hover {
   background: #444;
   color: #fff;
 }

@@ -1,23 +1,27 @@
 package com.vigza.markweave.core.service;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vigza.markweave.api.dto.Collaboration.CollaboratorVo;
 import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
+import com.vigza.markweave.common.util.IdGenerator;
 import com.vigza.markweave.common.util.JwtUtil;
 
 import com.vigza.markweave.infrastructure.persistence.entity.Collaboration;
+import com.vigza.markweave.infrastructure.persistence.entity.FsNode;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 import com.vigza.markweave.infrastructure.persistence.mapper.CollaborationMapper;
+import com.vigza.markweave.infrastructure.persistence.mapper.FsNodeMapper;
 import com.vigza.markweave.infrastructure.persistence.mapper.UserMapper;
 
 import lombok.extern.slf4j.Slf4j;
@@ -30,8 +34,10 @@ public class CollaborationServiceImpl implements CollaborationService {
     private CollaborationMapper collaborationMapper;
 
     @Autowired
-    private UserMapper userMapper;
+    private FsNodeMapper fsNodeMapper;
 
+    @Autowired
+    private UserMapper userMapper;
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -63,13 +69,15 @@ public class CollaborationServiceImpl implements CollaborationService {
     }
 
     @Override
-    public Result<String> createInvitation(String token, Long docId, Integer permission, Integer expTime) {
+    public Result<String> createInvitation(String token, String fileName, Long docId,
+            Integer permission,
+            Integer expTime) {
         User user = jwtUtil.getUserFromToken(token);
         Integer role = getPermission(user.getId(), docId);
         if (role == null || !role.equals(Constants.CollaborationPermission.CREATOR)) {
             return Result.error(403, "您不是该文档的创建者，无权邀请他人协作");
         }
-        String invToken = jwtUtil.generateInvitaionToken(docId, permission, expTime);
+        String invToken = jwtUtil.generateInvitaionToken(user.getNickName(),fileName, docId, permission, expTime);
         return Result.success(invToken);
     }
 
@@ -80,6 +88,7 @@ public class CollaborationServiceImpl implements CollaborationService {
             return false;
         }
         Integer permission = getPermission(user.getId(), docId);
+        log.info(permission.toString());
         return permission != null && Constants.CollaborationPermission.isValid(permission);
     }
 
@@ -149,6 +158,7 @@ public class CollaborationServiceImpl implements CollaborationService {
         return Result.success(collaborators);
     }
 
+    @Transactional
     @Override
     public Result<?> acceptInvitation(String userToken, String invToken) {
         User user = jwtUtil.getUserFromToken(userToken);
@@ -162,13 +172,27 @@ public class CollaborationServiceImpl implements CollaborationService {
 
         Long docId = jwtUtil.getDocIdFromInvToken(invToken);
         Integer permission = jwtUtil.getPermissionFromInvToken(invToken);
-
-        LambdaQueryWrapper<Collaboration> existQuery = new LambdaQueryWrapper<>();
-        existQuery.eq(Collaboration::getDocId, docId)
-                .eq(Collaboration::getUserId, user.getId());
-        Collaboration existingCollaboration = collaborationMapper.selectOne(existQuery);
+        String ownerName = jwtUtil.getOwnerNameFromInvToken(invToken);
+        String fileName = jwtUtil.getFileNameFromInvToken(invToken) + "_" + "共享快捷方式";
+        Collaboration existingCollaboration = collaborationMapper.selectById(user.getId() + "_" + docId);
+        FsNode fsNode = FsNode.builder()
+                .id(IdGenerator.nextId())
+                .userId(user.getId())
+                .docOwner(ownerName)
+                .docId(docId)
+                .name(fileName)
+                .faId(user.getUserSpaceNodeId())
+                .path("//我的云盘/我的共享/" + fileName)
+                .type(Constants.FsNodeType.SHORTCUT)
+                .recycled(false)
+                .size(0L)
+                .createTime(LocalDateTime.now())
+                .build();
+        fsNodeMapper.insert(fsNode);
         if (existingCollaboration != null) {
+            log.info(existingCollaboration.toString());
             if (existingCollaboration.getPermission().equals(Constants.CollaborationPermission.READ_ONLY)) {
+                log.info(permission.toString());
                 updatePermission(user.getId(), docId, permission);
             }
             return Result.success();
@@ -180,8 +204,9 @@ public class CollaborationServiceImpl implements CollaborationService {
                 .permission(permission)
                 .build();
         collaborationMapper.insert(collaboration);
+
+        
         return Result.success();
     }
-
 
 }

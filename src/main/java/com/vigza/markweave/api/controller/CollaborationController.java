@@ -21,13 +21,19 @@ import com.vigza.markweave.common.Constants;
 import com.vigza.markweave.common.Result;
 import com.vigza.markweave.common.util.JwtUtil;
 import com.vigza.markweave.core.service.CollaborationService;
-import com.vigza.markweave.infrastructure.persistence.entity.User;
+import com.vigza.markweave.core.service.FileSystemService;
+
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
+@Slf4j
 @RequestMapping("/api/collaboration")
 public class CollaborationController {
     @Autowired
     CollaborationService collaborationService;
+
+    @Autowired
+    FileSystemService fileSystemService;
 
     @Autowired
     JwtUtil jwtUtil;
@@ -38,16 +44,17 @@ public class CollaborationController {
         Long docId = request.getDocId();
         Integer permission = request.getPermission();
         Integer expTime = request.getExpTime();
+        String fileName = request.getFileName();
         if (expTime > 0 && jwtUtil.validateToken(token) && Constants.CollaborationPermission.isValid(permission)) {
-            return collaborationService.createInvitation(token, docId, permission, expTime);
+            return collaborationService.createInvitation(token,fileName, docId, permission, expTime);
         } else {
             return Result.error(403, "校验不通过");
         }
     }
 
     @PostMapping("/invite/accept")
-    public Result<?> acceptInvitation(@RequestHeader("Authorization") String token, @RequestBody String invToken) {
-        return collaborationService.acceptInvitation(token, invToken);
+    public Result<?> acceptInvitation(@RequestHeader("Authorization") String userToken, @RequestBody String invToken) {
+        return collaborationService.acceptInvitation(userToken, invToken);
     }
 
 

@@ -23,7 +23,7 @@ public interface CollaborationService {
     
     Result<List<CollaboratorVo>> selectCollaboratorsByDocId(String token, Long docId);
 
-    Result<String> createInvitation(String token, Long docId, Integer permission,Integer expTime);
+    Result<String> createInvitation(String token, String fileName,Long docId, Integer permission,Integer expTime);
 
     Result<?> acceptInvitation(String userToken, String invToken);
 

@@ -1009,7 +1009,7 @@ public class AlgorithmServiceImpl implements AlgorithmService {
 
                 currentVersion = redisService.getAndIncrementVersion(docId);
                 clientMsg.set("version", currentVersion);
-                redisService.pushHistory(docId, clientMsg.toString());
+                redisService.pushHistory(docId, objectMapper.writeValueAsString(clientMsg));
                 clientOp = new TextOperation().fromJSON(clientMsg.getStr("op"));
                 // 我们拿着这个op然后apply到fullText上
                 String fullText = fsService.getDocContent(docId);

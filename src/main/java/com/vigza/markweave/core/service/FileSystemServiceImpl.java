@@ -222,10 +222,6 @@ public class FileSystemServiceImpl implements FileSystemService {
                 .eq(FsNode::getRecycled, false)
                 .orderByAsc(FsNode::getName));
 
-        Set<Long> ptIds = nodes.stream()
-                .filter(node -> node.getType().equals(Constants.FsNodeType.SHORTCUT) && node.getPtId() != null)
-                .map(node -> node.getPtId())
-                .collect(Collectors.toSet());
 
         List<FsNodeVo> result = nodes.stream().map(node -> {
             FsNodeVo vo = new FsNodeVo();
@@ -243,7 +239,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         target.setName(source.getName());
         target.setPath(source.getPath());
         target.setType(source.getType());
-        target.setOwnerName(source.getDocOwner());
+        target.setDocOwner(source.getDocOwner());
         target.setSize(source.getSize());
         target.setUpdateTime(source.getUpdateTime());
         target.setCreateTime(source.getCreateTime());
@@ -313,7 +309,6 @@ public class FileSystemServiceImpl implements FileSystemService {
                             .id(fsNode.getId())
                             .userId(fsNode.getUserId())
                             .docOwner(fsNode.getDocOwner())
-                            .ownerName(fsNode.getDocOwner())
                             .docId(fsNode.getDocId())
                             .name(fsNode.getName())
                             .faId(fsNode.getFaId())

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import com.vigza.markweave.infrastructure.persistence.entity.User;
 
 import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.convert.Convert;
 import cn.hutool.jwt.JWT;
 import cn.hutool.jwt.JWTPayload;
 import cn.hutool.jwt.JWTUtil;
@@ -34,8 +35,10 @@ public class JwtUtil {
         return JWTUtil.createToken(payload,secret.getBytes());
     }
 
-    public String generateInvitaionToken(Long docId,Integer permission,Integer expTime){
+    public String generateInvitaionToken(String ownerName,String fileName,Long docId,Integer permission,Integer expTime){
         Map<String,Object> payload = new HashMap<>();
+        payload.put("ownerName",ownerName);
+        payload.put("fileName",fileName);
         payload.put("docId",docId);
         payload.put("permission",permission);
         long now = System.currentTimeMillis() / 1000;
@@ -74,7 +77,7 @@ public class JwtUtil {
         }
         JWT jwt = JWTUtil.parseToken(invToken);
         Object docIdObject =  jwt.getPayload("docId");
-        return BeanUtil.toBean(docIdObject, Long.class);
+        return Convert.toLong(docIdObject);
     }    
 
     public Integer getPermissionFromInvToken(String invToken){
@@ -83,6 +86,23 @@ public class JwtUtil {
         }
         JWT jwt = JWTUtil.parseToken(invToken);
         Object pObject = jwt.getPayload("permission");
-        return BeanUtil.toBean(pObject,Integer.class);
+        return Convert.toInt(pObject);
+    }
+    public String getOwnerNameFromInvToken(String invToken){
+        if(invToken.startsWith(prefix)){
+            invToken = invToken.substring(prefix.length()).trim();
+        }
+        JWT jwt = JWTUtil.parseToken(invToken);
+        Object pObject = jwt.getPayload("ownerName");
+        return Convert.toStr(pObject);
+    }
+
+    public String getFileNameFromInvToken(String invToken){
+        if(invToken.startsWith(prefix)){
+            invToken = invToken.substring(prefix.length()).trim();
+        }
+        JWT jwt = JWTUtil.parseToken(invToken);
+        Object pObject = jwt.getPayload("fileName");
+        return Convert.toStr(pObject);
     }
 }

@@ -1,6 +1,7 @@
 package com.vigza.markweave.api.websocket;
 
 import cn.hutool.core.lang.TypeReference;
+import cn.hutool.core.map.MapUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -12,12 +13,14 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vigza.markweave.api.dto.Websocket.WsMessage;
 import com.vigza.markweave.core.service.AlgorithmService;
 import com.vigza.markweave.core.service.CollaborationService;
 import com.vigza.markweave.core.service.FileSystemServiceImpl;
 import com.vigza.markweave.infrastructure.service.RedisService;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +48,9 @@ public class CollaborationHandler extends TextWebSocketHandler {
     @Autowired
     private AlgorithmService algorithmSerivce;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     /**
      * 解决又广播时前同一个session还没处理完的问题
      * 
@@ -67,9 +73,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
     @Override
     public void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
         log.info("Received message: {} from session: {}", message.getPayload(), session.getId());
-        WsMessage<JSONObject> clientMsg = JSONUtil.toBean(message.getPayload(),
-                new TypeReference<WsMessage<JSONObject>>() {
-                }, true);
+        WsMessage<Object> clientMsg = objectMapper.readValue(message.getPayload(), WsMessage.class);
         Long docId = clientMsg.getDocId();
         String token = (String) session.getAttributes().get("token");
         session.getAttributes().put("docId", docId);
@@ -80,8 +84,9 @@ public class CollaborationHandler extends TextWebSocketHandler {
         }
         if (!collaborationService.canRead(token, docId)) {
             clientMsg.setMethod("error");
-            clientMsg.setData(new JSONObject().set("msg", "无权访问"));
-            safeSend(session, new TextMessage(JSONUtil.toJsonStr(clientMsg)));
+            clientMsg.setData(MapUtil.of("msg","无权访问"));
+
+            safeSend(session, new TextMessage(objectMapper.writeValueAsString(clientMsg)));
             return;
         }
 
@@ -89,9 +94,9 @@ public class CollaborationHandler extends TextWebSocketHandler {
         // 1.处理获取全文请求
         if ("getNew".equals(method)) {
             clientMsg.setMethod("fullText");
-            clientMsg.setData(new JSONObject().set("text", fsService.getDocContent(docId)));
+            clientMsg.setData(MapUtil.of("text", fsService.getDocContent(docId)));
             clientMsg.setVersion(redisService.getVersion(docId));
-            safeSend(session, new TextMessage(JSONUtil.toJsonStr(clientMsg)));
+            safeSend(session, new TextMessage(objectMapper.writeValueAsString(clientMsg)));
             return;
         }
 
@@ -102,9 +107,9 @@ public class CollaborationHandler extends TextWebSocketHandler {
             Long size = redisService.getHistoryListSize(docId);
             if (maxVer - clientVer > size) {
                 clientMsg.setMethod("fullText");
-                clientMsg.setData(new JSONObject(fsService.getDocContent(docId)));
+                clientMsg.setData(MapUtil.of("text",fsService.getDocContent(docId)));
                 clientMsg.setVersion(redisService.getVersion(docId));
-                safeSend(session, new TextMessage(clientMsg.toString()));
+                safeSend(session, new TextMessage(objectMapper.writeValueAsString(clientMsg)));
                 return;
             }
             List<String> historyList = redisService
@@ -121,10 +126,16 @@ public class CollaborationHandler extends TextWebSocketHandler {
             });
             return;
         }
-        
+
         // 3. 处理编辑操作，计算出op，然后广播
         // 消息的幂等处理
-        if(redisService.tryProcessMessage(docId, clientMsg.getClientId(), clientMsg.getMsgId())){
+        if (redisService.tryProcessMessage(docId, clientMsg.getClientId(), clientMsg.getMsgId())) {
+            if (!collaborationService.canWrite(token, docId)) {
+                clientMsg.setMethod("error");
+                clientMsg.setData(MapUtil.of("msg", "无权访问"));
+                safeSend(session, new TextMessage(objectMapper.writeValueAsString(clientMsg)));
+                return;
+            }
             algorithmSerivce.processOperation(docId, clientMsg);
         }
     }

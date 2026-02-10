@@ -229,8 +229,8 @@
             <el-table-column prop="owner" label="所有者" width="150">
               <template #default="{ row }">
                 <div class="owner-cell">
-                  <span class="owner-avatar">{{ (row.owner || row.ownerName || 'U').charAt(0) }}</span>
-                  <span>{{ row.owner || row.ownerName || '-' }}</span>
+                  <span class="owner-avatar">{{ (row.docOwner || row.owner || 'U').charAt(0) }}</span>
+                  <span>{{ row.docOwner || row.owner || '-' }}</span>
                 </div>
               </template>
             </el-table-column>
@@ -553,7 +553,7 @@ export default {
         const nickname = currentUser?.nickname;
         const account = currentUser?.account;
         docs = docs.filter(doc => {
-          const ownerName = doc.owner || doc.ownerName || '';
+          const ownerName = doc.docOwner || doc.owner || '';
           return ownerName && (ownerName === nickname || ownerName === account);
         });
       } else if (activeFilter.value === 'owner-other') {
@@ -561,7 +561,7 @@ export default {
         const nickname = currentUser?.nickname;
         const account = currentUser?.account;
         docs = docs.filter(doc => {
-          const ownerName = doc.owner || doc.ownerName || '';
+          const ownerName = doc.docOwner || doc.owner || '';
           return ownerName && ownerName !== nickname && ownerName !== account;
         });
       }
@@ -570,7 +570,7 @@ export default {
         const query = searchQuery.value.toLowerCase();
         docs = docs.filter(doc =>
           (doc.name || '').toLowerCase().includes(query) ||
-          (doc.ownerName && doc.ownerName.toLowerCase().includes(query))
+          (doc.docOwner && doc.docOwner.toLowerCase().includes(query))
         );
       }
 
@@ -675,26 +675,29 @@ export default {
     };
 
     const openDocument = (row, inNewTab = false) => {
-      const targetUrl = router.resolve(`/editor/${row.docId || row.id}`).href;
+      const docId = row.docId
+      const docName = encodeURIComponent(row.name || row.docName || '未命名文档')
+      const targetUrl = router.resolve(`/editor/${docId}?docName=${docName}`).href
       if (inNewTab) {
-        window.open(targetUrl, '_blank');
+        window.open(targetUrl, '_blank')
       } else {
-        router.push(targetUrl);
+        router.push(targetUrl)
       }
-    };
+    }
 
     const handleOpenShortcut = (row, inNewTab = false) => {
-      if (!row.ptId) {
-        ElMessage.warning('快捷方式无效');
-        return;
+      if (!row.docId) {
+        ElMessage.warning('快捷方式无效')
+        return
       }
-      const targetUrl = router.resolve(`/editor/${row.ptId}`).href;
+      const docName = encodeURIComponent(row.name || '未命名文档')
+      const targetUrl = router.resolve(`/editor/${row.docId}?docName=${docName}`).href
       if (inNewTab) {
-        window.open(targetUrl, '_blank');
+        window.open(targetUrl, '_blank')
       } else {
-        router.push(targetUrl);
+        router.push(targetUrl)
       }
-    };
+    }
 
     const handleRowClick = async (row, _column, event) => {
       console.log('handleRowClick called, row:', row, 'type:', row.type);
@@ -889,8 +892,8 @@ export default {
             id: doc.id,
             docId: doc.docId,
             name: doc.name,
-            owner: doc.ownerName || '-',
-            ownerName: doc.ownerName,
+            owner: doc.docOwner || '-',
+            docOwner: doc.docOwner,
             type: doc.type,
             size: doc.size || 0,
             lastViewed: doc.lastViewTime,

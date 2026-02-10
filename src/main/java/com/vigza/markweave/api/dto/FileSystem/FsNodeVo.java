@@ -27,7 +27,6 @@ public class FsNodeVo {
     private Long faId;
     private String path;
     private Integer type;
-    private String ownerName;
     @JsonSerialize(using = ToStringSerializer.class)
     private Long ptId;
     private Boolean recycled;
