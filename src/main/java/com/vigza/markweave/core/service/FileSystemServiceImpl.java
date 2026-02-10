@@ -59,7 +59,7 @@ public class FileSystemServiceImpl implements FileSystemService {
             root.setId(0L);
             root.setUserId(-1L);
             root.setFaId(-1L);
-            root.setPath("/");
+            root.setPath("/0");
             root.setType(Constants.FsNodeType.FOLDER);
             root.setRecycled(false);
             root.setCreateTime(LocalDateTime.now());
@@ -74,8 +74,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         FsNode faNode = (FsNode) createNode("我的云盘", user.getUserSpaceNodeId(), 0L, Constants.FsNodeType.FOLDER, token,
                 false)
                 .getData();
-        Long faId = faNode.getId();
-        createNode("我的共享", user.getUserShareSpaceNodeId(), faId, Constants.FsNodeType.FOLDER, token, false);
+        createNode("我的共享", user.getUserShareSpaceNodeId(), 0L, Constants.FsNodeType.FOLDER, token, false);
     }
 
     @Override
@@ -112,7 +111,7 @@ public class FileSystemServiceImpl implements FileSystemService {
                 .docOwner(user.getNickName())
                 .name(fileName)
                 .faId(faId)
-                .path(faNode.getPath() + "/" + fileName)
+                .path(faNode.getPath() + "/" + nodeId)
                 .type(fileType)
                 .recycled(false)
                 .createTime(LocalDateTime.now())
@@ -144,7 +143,7 @@ public class FileSystemServiceImpl implements FileSystemService {
         FsNode node = (FsNode) preResult.getData();
         String fromPath = node.getPath();
 
-        String toPath = fromPath.substring(0, fromPath.length() - node.getName().length()) + "/" + newName;
+        String toPath = fromPath.substring(0, fromPath.lastIndexOf("/")) + "/" + nodeId + "/";
         node.setPath(toPath);
         node.setName(newName);
         fsNodeMapper.updateById(node);
@@ -179,7 +178,7 @@ public class FileSystemServiceImpl implements FileSystemService {
 
         node.setFaId(toId);
         String fromPath = node.getPath() + "/";
-        String toPath = targetNode.getPath() + "/" + node.getName() + "/";
+        String toPath = targetNode.getPath() + "/" + node.getId() + "/";
         node.setPath(toPath);
         fsNodeMapper.updateById(node);
 
@@ -243,7 +242,6 @@ public class FileSystemServiceImpl implements FileSystemService {
         target.setSize(source.getSize());
         target.setUpdateTime(source.getUpdateTime());
         target.setCreateTime(source.getCreateTime());
-        target.setPtId(source.getPtId());
     }
 
     // 不严格条件下，允许在根节点下创建个人云盘节点
@@ -314,7 +312,6 @@ public class FileSystemServiceImpl implements FileSystemService {
                             .faId(fsNode.getFaId())
                             .path(fsNode.getPath())
                             .type(fsNode.getType())
-                            .ptId(fsNode.getPtId())
                             .recycled(fsNode.getRecycled())
                             .size(fsNode.getSize())
                             .updateTime(fsNode.getUpdateTime())
@@ -338,15 +335,16 @@ public class FileSystemServiceImpl implements FileSystemService {
             return (Result<FsNode>) faResult;
         FsNode srcNode = (FsNode) preResult.getData();
         FsNode faNode = (FsNode) faResult.getData();
+        Long newNodeId = IdGenerator.nextId();
         FsNode node = FsNode.builder()
-                .id(IdGenerator.nextId())
+                .id(newNodeId)
                 .userId(user.getId())
+                .docId(srcNode.getDocId())
                 .docOwner(srcNode.getDocOwner())
                 .name(srcNode.getName() + "_快捷方式")
                 .faId(faId)
-                .path(faNode.getPath() + "/" + srcNode.getName() + "_快捷方式")
+                .path(faNode.getPath() + "/" + newNodeId)
                 .type(Constants.FsNodeType.SHORTCUT)
-                .ptId(srcNodeId)
                 .recycled(false)
                 .size(0L)
                 .createTime(LocalDateTime.now())

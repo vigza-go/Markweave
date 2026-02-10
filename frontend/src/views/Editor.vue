@@ -392,10 +392,22 @@ const applyFormat = (type, content) => {
   }
 
   const formats = {
-    bold: `**${selected || '文本'}**`,
-    italic: `*${selected || '文本'}*`,
-    heading: `## ${selected || '标题'}`,
-    code: `\`\`\`\n${selected || 'code'}\n\`\`\``
+    bold: `**${selected || '粗体文本'}**`,
+    italic: `*${selected || '斜体文本'}*`,
+    strikethrough: `~~${selected || '删除线文本'}~~`,
+    h1: `# ${selected || '标题1'}`,
+    h2: `## ${selected || '标题2'}`,
+    h3: `### ${selected || '标题3'}`,
+    link: selected ? `[${selected}](url)` : '[链接文字](url)',
+    image: `![${selected || '图片描述'}](url)`,
+    codeBlock: `\`\`\`markdown\n${selected || '代码内容'}\n\`\`\``,
+    inlineCode: `\`${selected || '代码'}\``,
+    quote: `> ${selected || '引用文本'}`,
+    table: `| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n| 内容1 | 内容2 | 内容3 |`,
+    hr: `\n---\n`,
+    unorderedList: selected?.split('\n').map(l => `- ${l}`).join('\n') || '- 无序列表项',
+    orderedList: selected?.split('\n').map((l, i) => `${i + 1}. ${l}`).join('\n') || '1. 有序列表项',
+    taskList: selected?.split('\n').map(l => `- [ ] ${l}`).join('\n') || '- [ ] 任务项'
   };
 
   const text = formats[type];
@@ -508,6 +520,273 @@ const goBack = () => router.push('/dashboard');
 
 const showShareDialog = ref(false);
 const showCollaboratorsDialog = ref(false);
+const showExportMenu = ref(false);
+const exporting = ref(false);
+
+const exportToMarkdown = () => {
+  const content = editorContent.value || editorInstance.value?.getModel()?.getValue() || '';
+  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${docName.value}.md`;
+  link.click();
+  URL.revokeObjectURL(url);
+  ElMessage.success('已导出 Markdown 文件');
+  showExportMenu.value = false;
+};
+
+const getRenderedContent = async () => {
+  await nextTick();
+  
+  const container = document.createElement('div');
+  container.innerHTML = previewHtml.value;
+  
+  const nodes = container.querySelectorAll('.mermaid-container');
+  if (nodes.length > 0) {
+    mermaid.initialize({ startOnLoad: false, theme: 'default' });
+    
+    for (const node of nodes) {
+      const rawCode = node.dataset.code || node.getAttribute('data-code');
+      if (!rawCode) continue;
+      
+      node.setAttribute('data-processed', 'true');
+      const id = `mermaid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      
+      try {
+        const { svg } = await mermaid.render(id, decodeURIComponent(rawCode));
+        
+        // 解析 SVG 字符串并修改宽度
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(svg, 'image/svg+xml');
+        const svgEl = svgDoc.documentElement;
+        
+        // 强制设置宽度为 100%，高度让浏览器自动计算
+        // 使用 CSS 样式而不是属性，因为 SVG height 属性不接受 "auto"
+        svgEl.setAttribute('width', '100%');
+        svgEl.removeAttribute('height');
+        svgEl.setAttribute('style', 'max-width: 700px; width: 100%; height: auto;');
+        
+        // 添加 viewBox 的 preserveAspectRatio
+        if (svgEl.getAttribute('viewBox')) {
+          svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        }
+        
+        // 确保 SVG 有 viewBox
+        if (!svgEl.getAttribute('viewBox')) {
+          const viewBox = svgEl.getAttribute('data-viewbox') || `0 0 ${svgEl.clientWidth || 800} ${svgEl.clientHeight || 600}`;
+          svgEl.setAttribute('viewBox', viewBox);
+        }
+        
+        node.innerHTML = svgEl.outerHTML;
+      } catch (e) {
+        node.innerHTML = `<pre style="color:red">Mermaid 渲染错误: ${e.message}</pre>`;
+      }
+    }
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return container.innerHTML;
+};
+
+const exportToHtml = async () => {
+  exporting.value = true;
+  ElMessage.info('正在渲染公式和图表...');
+  
+  try {
+    const renderedHtml = await getRenderedContent();
+    
+    const katexCss = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+    const mermaidJs = 'https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js';
+    const docTitle = docName.value;
+    const mermaidScript = '<scr' + 'ipt src="' + mermaidJs + '"></scr' + 'ipt>';
+    const mermaidInit = '<scr' + 'ipt>mermaid.initialize({ startOnLoad: true, theme: "default" });</scr' + 'ipt>';
+    
+    const parts = [
+      '<!DOCTYPE html>',
+      '<html lang="zh-CN">',
+      '<head>',
+      '  <meta charset="UTF-8">',
+      '  <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+      '  <title>' + docTitle + '</title>',
+      '  <link rel="stylesheet" href="' + katexCss + '">',
+      '  <style>',
+      '    body {',
+      '      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;',
+      '      max-width: 900px;',
+      '      margin: 0 auto;',
+      '      padding: 40px 20px;',
+      '      line-height: 1.6;',
+      '      color: #24292e;',
+      '    }',
+      '    pre {',
+      '      background-color: #f6f8fa;',
+      '      padding: 16px;',
+      '      border-radius: 6px;',
+      '      overflow-x: auto;',
+      '    }',
+      '    code {',
+      '      background-color: rgba(27,31,35,.05);',
+      '      padding: 0.2em 0.4em;',
+      '      border-radius: 3px;',
+      '    }',
+      '    pre code {',
+      '      background: none;',
+      '      padding: 0;',
+      '    }',
+      '    blockquote {',
+      '      border-left: 4px solid #dfe2e5;',
+      '      color: #6a737d;',
+      '      margin: 0;',
+      '      padding-left: 1em;',
+      '    }',
+      '    table {',
+      '      border-collapse: collapse;',
+      '      width: 100%;',
+      '    }',
+      '    table th, table td {',
+      '      border: 1px solid #dfe2e5;',
+      '      padding: 6px 13px;',
+      '    }',
+      '    table tr:nth-child(2n) {',
+      '      background-color: #f6f8fa;',
+      '    }',
+      '    .katex-display {',
+      '      overflow-x: auto;',
+      '      padding: 16px 0;',
+      '    }',
+      '    .mermaid-container {',
+      '      text-align: center;',
+      '      margin: 20px 0;',
+      '    }',
+      '    .mermaid-container svg {',
+      '      max-width: 100%;',
+      '      height: auto;',
+      '    }',
+      '  </style>',
+      '</head>',
+      '<body>',
+      renderedHtml,
+      mermaidScript,
+      mermaidInit,
+      '</body>',
+      '</html>'
+    ];
+    
+    const blob = new Blob([parts.join('\n')], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${docName.value}.html`;
+    link.click();
+    URL.revokeObjectURL(url);
+    ElMessage.success('已导出 HTML 文件');
+  } catch (err) {
+    ElMessage.error('导出失败: ' + err.message);
+  } finally {
+    exporting.value = false;
+    showExportMenu.value = false;
+  }
+};
+
+const exportToPdf = async () => {
+  exporting.value = true;
+  ElMessage.info('正在准备打印预览...');
+
+  try {
+    const renderedHtml = await getRenderedContent();
+
+    const katexCss = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+    const katexJs = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js';
+    const mermaidJs = 'https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.min.js';
+
+    const printHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>打印 - ${docName.value}</title>
+  <link rel="stylesheet" href="${katexCss}">
+  <style>
+    @page { 
+      margin: 15mm; 
+      size: A4 portrait;
+      @top-center { content: none; }
+      @bottom-center { content: none; }
+    }
+    @page :first {
+      @top-left { content: none; }
+      @top-right { content: none; }
+      @bottom-left { content: none; }
+      @bottom-right { content: none; }
+    }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      @page { margin: 0; }
+    }
+    html, body {
+      width: 100%;
+      height: auto;
+      min-height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      width: 100%;
+      max-width: 180mm;
+      margin: 15mm auto;
+      line-height: 1.7;
+      color: #24292e;
+      font-size: 12pt;
+      box-sizing: border-box;
+    }
+    h1, h2, h3, h4, h5, h6 { margin-top: 1.5em; margin-bottom: 0.5em; color: #111; }
+    h1 { font-size: 1.8em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+    h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.2em; }
+    p { margin: 0.8em 0; }
+    code { background: #f6f8fa; padding: 0.2em 0.4em; border-radius: 3px; font-size: 0.9em; }
+    pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 4px solid #dfe2e5; color: #6a737d; margin: 0; padding-left: 1em; }
+    table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+    th, td { border: 1px solid #dfe2e5; padding: 6px 13px; }
+    tr:nth-child(2n) { background-color: #f6f8fa; }
+    .katex-display { overflow-x: auto; padding: 1em 0; }
+    .mermaid-container { text-align: center; margin: 1.5em 0; page-break-inside: avoid; }
+    .mermaid-container svg { max-width: 100%; height: auto; max-height: 500px; }
+    ul, ol { padding-left: 2em; margin: 0.8em 0; }
+    li { margin: 0.3em 0; }
+    img { max-width: 100%; height: auto; page-break-inside: avoid; }
+    hr { border: none; border-top: 1px solid #eaecef; margin: 2em 0; }
+  </style>
+</head>
+<body>
+${renderedHtml}
+<script src="${katexJs}"></scr` + `ipt>
+<script src="${mermaidJs}"></scr` + `ipt>
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  window.onload = function() {
+    setTimeout(function() {
+      window.print();
+    }, 500);
+  };
+</scr` + `ipt>
+</body>
+</html>`;
+
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printHtml);
+    printWindow.document.close();
+
+    ElMessage.success('请在打印对话框中选择"另存为 PDF"');
+  } catch (err) {
+    ElMessage.error('打印失败: ' + err.message);
+  } finally {
+    exporting.value = false;
+    showExportMenu.value = false;
+  }
+};
 </script>
 
 <template>

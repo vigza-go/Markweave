@@ -175,14 +175,15 @@ public class CollaborationServiceImpl implements CollaborationService {
         String ownerName = jwtUtil.getOwnerNameFromInvToken(invToken);
         String fileName = jwtUtil.getFileNameFromInvToken(invToken) + "_" + "共享快捷方式";
         Collaboration existingCollaboration = collaborationMapper.selectById(user.getId() + "_" + docId);
+        Long newNodeId = IdGenerator.nextId();
         FsNode fsNode = FsNode.builder()
-                .id(IdGenerator.nextId())
+                .id(newNodeId)
                 .userId(user.getId())
                 .docOwner(ownerName)
                 .docId(docId)
                 .name(fileName)
-                .faId(user.getUserSpaceNodeId())
-                .path("//我的云盘/我的共享/" + fileName)
+                .faId(user.getUserShareSpaceNodeId())
+                .path("/" + user.getUserSpaceNodeId() + "/" + user.getUserShareSpaceNodeId() + "/" + newNodeId)
                 .type(Constants.FsNodeType.SHORTCUT)
                 .recycled(false)
                 .size(0L)
