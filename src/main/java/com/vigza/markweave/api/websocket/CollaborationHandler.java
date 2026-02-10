@@ -132,7 +132,7 @@ public class CollaborationHandler extends TextWebSocketHandler {
         if (redisService.tryProcessMessage(docId, clientMsg.getClientId(), clientMsg.getMsgId())) {
             if (!collaborationService.canWrite(token, docId)) {
                 clientMsg.setMethod("error");
-                clientMsg.setData(MapUtil.of("msg", "无权访问"));
+                clientMsg.setData(MapUtil.of("msg", "无权编辑"));
                 safeSend(session, new TextMessage(objectMapper.writeValueAsString(clientMsg)));
                 return;
             }

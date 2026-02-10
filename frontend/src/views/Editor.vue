@@ -6,6 +6,8 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import * as monaco from 'monaco-editor'
 import { debounce } from 'lodash-es'
 import ShareDialog from '@/components/ShareDialog.vue'
+import CollaboratorsDialog from '@/components/CollaboratorsDialog.vue'
+import { collaborationService } from '@/services/collaboration'
 // --- 深度渲染依赖 ---
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
@@ -43,6 +45,8 @@ const router = useRouter()
 
 const docId = ref(route.params.docId)
 const docName = ref(decodeURIComponent(route.query.docName || '未命名文档'))
+const isCreator = ref(false)
+const canEdit = ref(true)
 const version = ref(0)
 const editorContainer = ref(null)
 const previewPane = ref(null)
@@ -54,9 +58,46 @@ watch(() => route.query.docName, (newName) => {
   document.title = `${docName.value} - MarkWeave`
 })
 
-onMounted(() => {
-  document.title = `${docName.value} - MarkWeave`
+watch(canEdit, (newVal) => {
+  if (editorInstance.value) {
+    editorInstance.value.updateOptions({ readOnly: !newVal })
+  }
 })
+
+onMounted(async () => {
+  document.title = `${docName.value} - MarkWeave`
+  await checkCreatorStatus()
+})
+
+const checkCreatorStatus = async () => {
+  try {
+    const response = await collaborationService.getCollaborators(docId.value)
+    if (response.code === 200) {
+      const collaborators = response.data || []
+
+      const currentUser = JSON.parse(localStorage.getItem('user') || '{}')
+      const currentUserId = currentUser.id
+
+      console.log('=== 检查权限状态 ===')
+      console.log('当前用户ID:', currentUserId)
+
+      let matchedUser = null
+      for (const c of collaborators) {
+        if (String(c.userId) === String(currentUserId)) {
+          matchedUser = c
+        }
+      }
+
+      console.log('当前用户权限:', matchedUser?.permission)
+      isCreator.value = matchedUser?.permission === 1
+      canEdit.value = matchedUser?.permission !== 3
+      console.log('是否为创建者:', isCreator.value)
+      console.log('是否可以编辑:', canEdit.value)
+    }
+  } catch (error) {
+    console.error('检查权限状态失败:', error)
+  }
+}
 
 const token = localStorage.getItem('token')
 const clientId = 'user_' + (localStorage.getItem('userId') || Math.random().toString(16).slice(2))
@@ -238,7 +279,8 @@ const initEditor = () => {
     theme: 'vs-light',
     automaticLayout: true,
     fontSize: 16,
-    wordWrap: 'on'
+    wordWrap: 'on',
+    readOnly: !canEdit.value
   });
 
   editorInstance.value.onDidScrollChange(handleEditorScroll);
@@ -465,6 +507,7 @@ onUnmounted(() => {
 const goBack = () => router.push('/dashboard');
 
 const showShareDialog = ref(false);
+const showCollaboratorsDialog = ref(false);
 </script>
 
 <template>
@@ -472,9 +515,18 @@ const showShareDialog = ref(false);
     <div class="editor-header">
       <button class="back-btn" @click="goBack">← 返回</button>
       <div class="doc-title">{{ docName }}</div>
-      <div class="status-info">版本: {{ version }} | 协作 ID: {{ clientId }}</div>
+      <div class="status-info">
+        <span v-if="!canEdit" class="readonly-badge">只读</span>
+        版本: {{ version }} | 协作 ID: {{ clientId }}
+      </div>
       <div class="header-actions">
-        <button class="action-btn" @click="showShareDialog = true">
+        <button class="action-btn" @click="showCollaboratorsDialog = true">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+          </svg>
+          协作
+        </button>
+        <button class="action-btn" @click="showShareDialog = true" v-if="isCreator">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
             <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
           </svg>
@@ -494,6 +546,13 @@ const showShareDialog = ref(false);
       v-model:visible="showShareDialog"
       :doc-id="docId"
       :doc-name="docName"
+      :is-creator="isCreator"
+    />
+
+    <CollaboratorsDialog
+      v-model:visible="showCollaboratorsDialog"
+      :doc-id="docId"
+      :is-creator="isCreator"
     />
   </div>
 </template>
@@ -514,6 +573,18 @@ const showShareDialog = ref(false);
   align-items: center;
   gap: 20px;
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.readonly-badge {
+  background: #e6a23c;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .doc-title {

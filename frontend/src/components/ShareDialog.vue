@@ -35,13 +35,16 @@
             placeholder="点击生成链接"
           >
             <template #append>
-              <el-button @click="generateLink" :loading="generating">
+              <el-button @click="generateLink" :loading="generating" :disabled="!isCreator">
                 {{ inviteLink ? '重新生成' : '生成链接' }}
               </el-button>
             </template>
           </el-input>
           <div class="link-tip" v-if="inviteLink">
             复制链接发送给协作者，对方登录后即可加入协作
+          </div>
+          <div class="link-tip" v-else-if="!isCreator">
+            您不是文档创建者，无法生成邀请链接
           </div>
         </el-form-item>
 
@@ -56,35 +59,6 @@
           </el-button>
         </el-form-item>
       </el-form>
-
-      <el-divider content-position="center">当前协作者</el-divider>
-
-      <div class="collaborators-list" v-loading="loadingCollaborators">
-        <div
-          v-for="collab in collaborators"
-          :key="collab.userId"
-          class="collaborator-item"
-        >
-          <el-avatar :size="32" :src="collab.headUrl">
-            {{ collab.nickName?.charAt(0) }}
-          </el-avatar>
-          <div class="collaborator-info">
-            <span class="collaborator-name">{{ collab.nickName }}</span>
-            <span class="collaborator-role">
-              {{ getPermissionLabel(collab.permission) }}
-            </span>
-          </div>
-          <el-tag
-            v-if="collab.permission === 1"
-            type="info"
-            size="small"
-            effect="plain"
-          >
-            创建者
-          </el-tag>
-        </div>
-        <el-empty v-if="!loadingCollaborators && collaborators.length === 0" description="暂无协作者" :image-size="60" />
-      </div>
     </div>
   </el-dialog>
 </template>
@@ -107,6 +81,10 @@ const props = defineProps({
   docName: {
     type: String,
     default: ''
+  },
+  isCreator: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -115,8 +93,6 @@ const emit = defineEmits(['update:visible'])
 const dialogVisible = ref(false)
 const inviteLink = ref('')
 const generating = ref(false)
-const loadingCollaborators = ref(false)
-const collaborators = ref([])
 
 const shareForm = reactive({
   permission: 2,
@@ -126,7 +102,6 @@ const shareForm = reactive({
 watch(() => props.visible, (val) => {
   dialogVisible.value = val
   if (val) {
-    loadCollaborators()
     inviteLink.value = ''
   }
 })
@@ -138,6 +113,11 @@ watch(dialogVisible, (val) => {
 const generateLink = async () => {
   if (!props.docId) {
     ElMessage.warning('文档ID无效')
+    return
+  }
+
+  if (!props.isCreator) {
+    ElMessage.warning('您不是文档创建者，无法生成邀请链接')
     return
   }
 
@@ -172,29 +152,6 @@ const copyLink = async () => {
     ElMessage.error('复制失败，请手动复制')
   }
 }
-
-const loadCollaborators = async () => {
-  loadingCollaborators.value = true
-  try {
-    const response = await collaborationService.getCollaborators(props.docId)
-    if (response.code === 200) {
-      collaborators.value = response.data || []
-    }
-  } catch (error) {
-    console.error('加载协作者失败:', error)
-  } finally {
-    loadingCollaborators.value = false
-  }
-}
-
-const getPermissionLabel = (permission) => {
-  const labels = {
-    1: '创建者',
-    2: '可编辑',
-    3: '仅查看'
-  }
-  return labels[permission] || '未知'
-}
 </script>
 
 <style scoped>
@@ -206,39 +163,5 @@ const getPermissionLabel = (permission) => {
   font-size: 12px;
   color: #909399;
   margin-top: 8px;
-}
-
-.collaborators-list {
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.collaborator-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
-}
-
-.collaborator-item:last-child {
-  border-bottom: none;
-}
-
-.collaborator-info {
-  margin-left: 12px;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.collaborator-name {
-  font-size: 14px;
-  color: #303133;
-}
-
-.collaborator-role {
-  font-size: 12px;
-  color: #909399;
 }
 </style>
