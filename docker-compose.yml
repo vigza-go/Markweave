@@ -1,0 +1,72 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: markweave-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 2026
+      MYSQL_DATABASE: markweave
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7-alpine
+    container_name: markweave-redis
+    restart: always
+    command: redis-server --requirepass foobared
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: markweave-rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: vigza
+      RABBITMQ_DEFAULT_PASS: 2026
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  app:
+    build: .
+    container_name: markweave-app
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/markweave?serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf-8
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: 2026
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: foobared
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: vigza
+      SPRING_RABBITMQ_PASSWORD: 2026
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+
+  frontend:
+    build: ./frontend
+    container_name: markweave-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:

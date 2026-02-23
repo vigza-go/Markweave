@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class MarkweaveApplication {
 
 	public static void main(String[] args) {
+		System.out.print("hello,markweave...\n");
 		SpringApplication.run(MarkweaveApplication.class, args);
 	}
 
