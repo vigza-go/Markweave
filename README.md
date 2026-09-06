@@ -1,4 +1,4 @@
-# MarkWeave 
+# MarkWeave 【已废弃，存在设计问题】
 
 **前端** : vite vue3 monaco-editor 
 
